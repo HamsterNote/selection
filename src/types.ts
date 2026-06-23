@@ -107,6 +107,17 @@ export interface SelectionProps {
   selectionColor?: string;
   /** 自定义类名 */
   className?: string;
+  /**
+   * 当某个高亮被选中时，在其上方弹出的 Popover 内容。
+   * 由外部传入任意 React 节点（例如删除按钮、工具栏）。
+   * 默认为空：不传则不渲染 Popover。
+   *
+   * 行为：
+   * - 仅当存在被选中的高亮（selectedRangeId 非 null 且能在 ranges 中找到）时显示；
+   * - 位置：选中高亮第一行（最顶行）矩形正上方，水平居中；
+   * - 点击 Popover 内部不会触发「点击外部取消选中」逻辑。
+   */
+  popover?: ReactNode;
 }
 
 /**

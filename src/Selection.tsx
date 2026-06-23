@@ -146,11 +146,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     highlightColor,
     selectionColor,
     className,
+    popover,
   },
   ref,
 ): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // Popover DOM 引用，用于「点击文档其它位置取消选中」时排除 popover 内部点击
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   const { selectedText, startIndex, endIndex, hasSelection, clear, rects } =
     useTextSelection(containerRef);
@@ -314,6 +317,38 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
   }, [handleContainerClick]);
 
+  // 点击文档任意位置取消选中，除了 Popover 内部。
+  // 用 mousedown 而非 click，确保比容器内的 click 早触发：
+  //   mousedown(document) → click(container) → click(document)
+  // 这样即使点击是落在另一个高亮 rect 上，document 先清空，
+  // 紧接着 container 的 click 通过 hit-test 再把新 rect 设为选中，最终状态正确。
+  // 点击 popover 内部不应取消选中，所以排除 popoverRef 命中的目标。
+  useEffect(() => {
+    if (!selectedRangeId || !onSelectRange) return;
+    const handleDocMouseDown = (e: MouseEvent) => {
+      const popoverEl = popoverRef.current;
+      if (popoverEl && e.target instanceof Node && popoverEl.contains(e.target)) return;
+      onSelectRange(null);
+    };
+    document.addEventListener('mousedown', handleDocMouseDown);
+    return () => {
+      document.removeEventListener('mousedown', handleDocMouseDown);
+    };
+  }, [selectedRangeId, onSelectRange]);
+
+  // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
+  // 没有选中、或选中的 id 在 persistedRects 中找不到时为 null（不渲染 Popover）。
+  const popoverAnchor = (() => {
+    if (!selectedRangeId || !popover) return null;
+    const entry = persistedRects.find((p) => p.id === selectedRangeId);
+    if (!entry || entry.rects.length === 0) return null;
+    let top = entry.rects[0];
+    for (const r of entry.rects) {
+      if (r.y < top.y) top = r;
+    }
+    return { x: top.x + top.width / 2, y: top.y };
+  })();
+
   return (
     <div
       ref={containerRef}
@@ -374,6 +409,21 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       <div ref={contentRef} className="hsn-selection-content">
         {children}
       </div>
+
+      {/*
+        Popover 层：渲染在 children 之上、与 overlay 同层级（更高 z-index 保证浮在最上）。
+        位置基于选中 range 顶部矩形的水平中点；transform 把自己钉在锚点正上方。
+        用 ref 给 document mousedown 判断「是否点在 popover 内」。
+      */}
+      {popoverAnchor && (
+        <div
+          ref={popoverRef}
+          className="hsn-selection-popover"
+          style={{ left: popoverAnchor.x, top: popoverAnchor.y }}
+        >
+          {popover}
+        </div>
+      )}
     </div>
   );
 });

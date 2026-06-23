@@ -180,6 +180,24 @@ export default function App() {
           onSelectionStart={handleSelectionStart}
           onSelectionEnd={handleSelectionEnd}
           onHighlight={handleHighlight}
+          popover={
+            <button
+              type="button"
+              onClick={handleDeleteSelected}
+              style={{
+                padding: '4px 10px',
+                background: '#fa5252',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: 12,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+              }}
+            >
+              删除
+            </button>
+          }
         >
           {/*
             混合内容：纯文本 + 多种相对定位 inline 元素。
