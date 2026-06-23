@@ -227,39 +227,52 @@ export function Selection({
       ref={containerRef}
       className={`hsn-selection-container${className ? ` ${className}` : ''}`}
     >
-      {/* Overlay 层（在内容下方）：持久高亮 + 当前选区，纯视觉，不拦截鼠标 */}
-      <div className="hsn-selection-overlay" aria-hidden>
+      {/*
+        Overlay 层（在内容下方）：持久高亮 + 当前选区，纯视觉。
+        改用 <svg> 渲染，所有选框是 <rect>：
+        - 比 <span> 绝对定位更适合「形状/笔触」类视觉表达（描边、圆角、未来可扩展斜线/波浪线下划线等）；
+        - 单个 SVG 容器即可承载全部矩形，DOM 节点更少；
+        - 仍保留 hsn-selection-rect--highlight 的 pointer-events:auto，确保「点击高亮移除」生效。
+        SVG 用 preserveAspectRatio="none" 让坐标系等价于像素坐标。
+      */}
+      <svg
+        className="hsn-selection-overlay"
+        aria-hidden="true"
+        role="presentation"
+        focusable="false"
+        preserveAspectRatio="none"
+      >
         {persistedRects.map(({ id, rects: rs }) =>
           rs.map((r) => (
-            <span
+            <rect
               key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
               className="hsn-selection-rect hsn-selection-rect--highlight"
-              style={{
-                left: r.x,
-                top: r.y,
-                width: r.width,
-                height: r.height,
-                ...(highlightColor ? { backgroundColor: highlightColor } : null),
-              }}
+              x={r.x}
+              y={r.y}
+              width={r.width}
+              height={r.height}
+              rx={2}
+              ry={2}
+              {...(highlightColor ? { fill: highlightColor } : null)}
             />
           )),
         )}
 
         {hasSelection &&
           rects.map((r) => (
-            <span
+            <rect
               key={`active-${r.x},${r.y},${r.width},${r.height}`}
               className="hsn-selection-rect hsn-selection-rect--active"
-              style={{
-                left: r.x,
-                top: r.y,
-                width: r.width,
-                height: r.height,
-                ...(selectionColor ? { backgroundColor: selectionColor } : null),
-              }}
+              x={r.x}
+              y={r.y}
+              width={r.width}
+              height={r.height}
+              rx={2}
+              ry={2}
+              {...(selectionColor ? { fill: selectionColor } : null)}
             />
           ))}
-      </div>
+      </svg>
 
       {/* 内容层：children 原样渲染，不做任何包装 */}
       <div ref={contentRef} className="hsn-selection-content">

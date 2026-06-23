@@ -26,37 +26,36 @@
   color: inherit;
 }
 
-/* Overlay 层：与内容层重叠的绝对定位画布 */
+/* Overlay 层：与内容层重叠的 SVG 画布。
+   宽高 100% 让 SVG 视口与容器盒一致；坐标即像素。 */
 .hsn-selection-overlay {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   z-index: 0;
+  overflow: visible;
 }
 
-/* 通用矩形：绝对定位，圆角，过渡 */
+/* SVG <rect> 通用样式：仅做视觉过渡，几何属性由 React 设置 */
 .hsn-selection-rect {
-  position: absolute;
-  border-radius: 2px;
-  padding: 0;
-  margin: 0;
-  border: none;
-  transition: background-color 0.15s ease;
+  transition: fill 0.15s ease;
 }
 
 /* 持久高亮：黄色，可点击移除 */
 .hsn-selection-rect--highlight {
-  background-color: rgba(255, 213, 79, 0.4);
+  fill: rgba(255, 213, 79, 0.4);
   pointer-events: auto;
   cursor: pointer;
 }
 .hsn-selection-rect--highlight:hover {
-  background-color: rgba(255, 213, 79, 0.7);
+  fill: rgba(255, 213, 79, 0.7);
 }
 
 /* 当前选择中：粉色，不拦截鼠标（不影响 Selection 拖动） */
 .hsn-selection-rect--active {
-  background-color: rgba(255, 105, 180, 0.45);
+  fill: rgba(255, 105, 180, 0.45);
   pointer-events: none;
 }
 
