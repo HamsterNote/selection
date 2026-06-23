@@ -21,6 +21,7 @@ type LogEntry = { id: number; kind: LogKind; detail: string; ts: string };
 
 export default function App() {
   const [ranges, setRanges] = useState<SelectionRange[]>([]);
+  const [selectedRangeId, setSelectedRangeId] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   // 命令式句柄，按钮通过它调用组件的 highlight()
   const selectionRef = useRef<SelectionRef>(null);
@@ -37,9 +38,26 @@ export default function App() {
     setRanges((prev) => [...prev, range]);
   }, []);
 
-  const handleRemove = useCallback((id: string) => {
-    setRanges((prev) => prev.filter((r) => r.id !== id));
+  // 选中/取消选中的回调（受控）
+  const handleSelectRange = useCallback((id: string | null) => {
+    setSelectedRangeId(id);
   }, []);
+
+  // 删除当前选中的 range
+  const handleDeleteSelected = useCallback(() => {
+    if (!selectedRangeId) return;
+    setRanges((prev) => prev.filter((r) => r.id !== selectedRangeId));
+    setSelectedRangeId(null);
+  }, [selectedRangeId]);
+
+  // 从列表中删除指定 range
+  const handleDeleteRange = useCallback(
+    (id: string) => {
+      setRanges((prev) => prev.filter((r) => r.id !== id));
+      setSelectedRangeId((prev) => (prev === id ? null : prev));
+    },
+    [],
+  );
 
   const handleSelectionStart = useCallback(
     (pos: MousePosition, sel: Selection) => {
@@ -82,10 +100,10 @@ export default function App() {
     >
       <h1 style={{ fontSize: 28, marginBottom: 8 }}>@hamster-note/selection</h1>
       <p style={{ color: '#666', marginBottom: 16 }}>
-        选中下方文本后，点击右上方的「高亮」按钮添加标记；点击已有高亮可移除。
+        选中下方文本后，点击「高亮选中」按钮添加标记。点击已有高亮可选中/取消选中，选中后可删除。
       </p>
 
-      {/* 工具条：高亮按钮已外置到组件外部，仅通过 ref 调用组件暴露的 highlight() 命令式 API */}
+      {/* 工具条：高亮 / 清除 / 删除选中，均通过 ref 或受控状态操作组件 */}
       <div
         style={{
           display: 'flex',
@@ -126,6 +144,23 @@ export default function App() {
         >
           清除选区
         </button>
+        <button
+          type="button"
+          onClick={handleDeleteSelected}
+          onMouseDown={handleHighlightMouseDown}
+          disabled={!selectedRangeId}
+          style={{
+            padding: '6px 14px',
+            background: selectedRangeId ? '#fa5252' : '#f1f1f1',
+            color: selectedRangeId ? '#fff' : '#bbb',
+            border: selectedRangeId ? 'none' : '1px solid #e0e0e0',
+            borderRadius: 6,
+            cursor: selectedRangeId ? 'pointer' : 'not-allowed',
+            fontSize: 13,
+          }}
+        >
+          删除选中
+        </button>
       </div>
 
       <div
@@ -139,8 +174,9 @@ export default function App() {
         <Selection
           ref={selectionRef}
           ranges={ranges}
+          selectedRangeId={selectedRangeId}
           onSelect={handleSelect}
-          onRemove={handleRemove}
+          onSelectRange={handleSelectRange}
           onSelectionStart={handleSelectionStart}
           onSelectionEnd={handleSelectionEnd}
           onHighlight={handleHighlight}
@@ -215,7 +251,7 @@ export default function App() {
           </span>
           {'来高效地更新真实 DOM，只重新渲染发生变化的部分。'}
           <br />
-          {'你可以选中文本来添加高亮标记，也可以点击已有高亮来移除它们。试试看吧！'}
+          {'你可以选中文本来添加高亮标记，也可以点击已有高亮来选中或取消选中。试试看吧！'}
         </Selection>
       </div>
 
@@ -225,10 +261,65 @@ export default function App() {
           {ranges.length === 0 ? (
             <p style={{ color: '#999' }}>还没有高亮内容</p>
           ) : (
-            <ul style={{ paddingLeft: 20, lineHeight: 1.8 }}>
-              {ranges.map((r) => (
-                <li key={r.id}>「{r.text}」</li>
-              ))}
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {ranges.map((r) => {
+                const isSelected = r.id === selectedRangeId;
+                return (
+                  <li
+                    key={r.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '4px 8px',
+                      marginBottom: 4,
+                      borderRadius: 4,
+                      background: isSelected ? '#fff8e1' : '#fff',
+                      border: isSelected ? '1px solid #ffc107' : '1px solid #eee',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleSelectRange(isSelected ? null : r.id)}
+                      style={{
+                        flex: 1,
+                        textAlign: 'left',
+                        lineHeight: 1.6,
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: 0,
+                        color: 'inherit',
+                        fontSize: 'inherit',
+                      }}
+                    >
+                      「{r.text}」
+                      {isSelected && (
+                        <strong style={{ color: '#ff9800', fontSize: 12, marginLeft: 4 }}>
+                          已选中
+                        </strong>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteRange(r.id)}
+                      style={{
+                        padding: '2px 8px',
+                        background: 'transparent',
+                        color: '#fa5252',
+                        border: '1px solid #fa5252',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        flexShrink: 0,
+                      }}
+                    >
+                      删除
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

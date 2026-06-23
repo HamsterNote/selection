@@ -63,12 +63,24 @@ export interface SelectionRef {
 export interface SelectionProps {
   /** 文本内容（任意 React 节点）。组件保证不会改写或包装。 */
   children: ReactNode;
-  /** 当前已存在的选区列表 */
+  /** 当前已存在的选区列表（受控） */
   ranges: SelectionRange[];
+  /**
+   * 当前被选中的高亮 range 的 ID（受控属性）。
+   * null 表示没有选中任何 range（用户正在拖选新文本，或未点击任何高亮区域）。
+   * 「刚高亮完」的 range 也会被自动设为选中。
+   */
+  selectedRangeId?: string | null;
   /** 当用户确认高亮时触发（无论来源是 ref.highlight() 还是其它内部确认路径） */
   onSelect?: (range: SelectionRange) => void;
-  /** 当用户移除某个选区时触发 */
-  onRemove?: (id: string) => void;
+  /**
+   * 当用户选中/取消选中某个已高亮的 range 时触发。
+   * - 点击未选中的高亮 range → 传入该 range 的 id
+   * - 点击已选中的高亮 range → 传入 null（toggle）
+   * - 用户开始拖选新文本 → 传入 null
+   * - 执行 highlight() 后自动选中 → 传入新 range 的 id
+   */
+  onSelectRange?: (id: string | null) => void;
   /**
    * 钩子：用户开始一次文本选择时触发。
    * 参数 1 —— 鼠标位置（基于 mousedown 时的 clientX/clientY，使用 viewport 坐标）；

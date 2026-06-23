@@ -43,7 +43,7 @@
   transition: fill 0.15s ease;
 }
 
-/* 持久高亮：黄色，可点击移除 */
+/* 持久高亮（未选中态）：黄色，可点击选中 */
 .hsn-selection-rect--highlight {
   fill: rgba(255, 213, 79, 0.4);
   pointer-events: auto;
@@ -51,6 +51,15 @@
 }
 .hsn-selection-rect--highlight:hover {
   fill: rgba(255, 213, 79, 0.7);
+}
+
+/* 选中的持久高亮：更深的黄色填充 + 橙色描边，视觉上与未选中态区分 */
+.hsn-selection-rect--selected {
+  fill: rgba(255, 193, 7, 0.55);
+  stroke: rgba(255, 152, 0, 0.9);
+  stroke-width: 1.5;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 /* 当前选择中：粉色，不拦截鼠标（不影响 Selection 拖动） */

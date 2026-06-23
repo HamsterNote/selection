@@ -7,7 +7,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { OverlayRect, SelectionProps, SelectionRange, SelectionRef } from './types';
+import type {
+  OverlayRect,
+  SelectionProps,
+  SelectionRange,
+  SelectionRef,
+} from './types';
 import { useTextSelection } from './useTextSelection';
 import './style.css';
 
@@ -117,19 +122,24 @@ function rectListsEqual(
  * 3. 通过原生 ::selection 透明 + 自定义粉色 Overlay 实现自定义选择样式；
  * 4. 高亮按钮不再由组件内部渲染：通过 ref 暴露 highlight()/clear() 命令式 API
  *    供调用方在任意位置（例如自定义工具栏/外部按钮）触发。
+ * 5. 组件为受控组件：ranges、selectedRangeId 均由外部管理；
+ *    点击高亮 range 不再移除它，而是将其设为「选中」状态（toggle），通过 onSelectRange 回调上报。
+ *    删除选区由外部调用方自行处理（例如在工具栏或列表中提供删除按钮）。
  *
  * 钩子（均在 props 中传入）：
  * - onSelectionStart(mousePos, selection)：容器内 mousedown 时触发；
  * - onSelectionEnd(mousePos, selection)：容器内 mouseup 且仍有有效选区时触发；
  * - onSelect(range)：执行 highlight() 后构造的 range 通过此回调上报（保持原行为）；
  * - onHighlight(range)：每次执行 highlight() 时额外触发，专门用于高亮叙事。
+ * - onSelectRange(id|null)：当用户点击/取消选中某个高亮 range，或开始拖选新文本时触发。
  */
 export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selection(
   {
     children,
     ranges,
+    selectedRangeId,
     onSelect,
-    onRemove,
+    onSelectRange,
     onSelectionStart,
     onSelectionEnd,
     onHighlight,
@@ -189,8 +199,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
   /**
    * 确认选区：构造 SelectionRange 并回调。
-   * 触发顺序：onSelect → onHighlight → clear()
-   * 这样在 onHighlight 中读到的 range 与 onSelect 是同一份，便于做对称叙事。
+   * 触发顺序：onSelect → onHighlight → onSelectRange → clear()
+   * onSelectRange 自动将新建的 range 设为「选中」，满足「刚高亮完的也算一种选中」的需求。
    */
   const handleConfirm = useCallback(() => {
     if (!hasSelection || !selectedText) return;
@@ -205,8 +215,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
     onSelect?.(range);
     onHighlight?.(range);
+    onSelectRange?.(range.id);
     clear();
-  }, [hasSelection, selectedText, startIndex, endIndex, onSelect, onHighlight, clear]);
+  }, [hasSelection, selectedText, startIndex, endIndex, onSelect, onHighlight, onSelectRange, clear]);
 
   // 用 useImperativeHandle 暴露命令式 API。
   // 设计上仅暴露 highlight/clear 两个动作，不暴露内部状态——
@@ -256,13 +267,21 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
   }, [onSelectionStart, onSelectionEnd]);
 
-  // 容器点击：用于「点击高亮以移除」的命中测试。
-  // 高亮 Overlay 在文字下方（pointer-events: none，避免吞掉选择行为），
-  // 所以这里读容器坐标并和持久 rect 做矩形包含检测。
-  // 如果当前是「拖选完成」的 click（getSelection 仍有文本），则不触发移除。
+  // 当用户开始拖选新文本时（hasSelection 变为 true），自动取消当前选中的高亮 range。
+  // 这实现了「当前新选择而又没高亮的选区」与「已选中的高亮 range」互斥的需求。
+  useEffect(() => {
+    if (hasSelection) {
+      onSelectRange?.(null);
+    }
+  }, [hasSelection, onSelectRange]);
+
+  // 容器点击：用于「点击高亮以选中」的命中测试。
+  // 高亮 Overlay 在文字下方，这里读容器坐标并和持久 rect 做矩形包含检测。
+  // 如果当前是「拖选完成」的 click（getSelection 仍有文本），则不触发选中。
+  // Toggle 行为：点击已选中的 range 取消选中，点击未选中的 range 设为选中。
   const handleContainerClick = useCallback(
     (e: MouseEvent) => {
-      if (!onRemove) return;
+      if (!onSelectRange) return;
       const native = window.getSelection();
       if (native && !native.isCollapsed && native.toString().trim()) return;
 
@@ -275,18 +294,17 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       for (const { id, rects: rs } of persistedRects) {
         for (const r of rs) {
           if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
-            onRemove(id);
+            onSelectRange(id === selectedRangeId ? null : id);
             return;
           }
         }
       }
     },
-    [onRemove, persistedRects],
+    [onSelectRange, selectedRangeId, persistedRects],
   );
 
-  // 用原生 click 监听挂在容器上；高亮的「点击移除」不是真正的按钮交互，
-  // 它伴随键盘操作没有合理语义（要移除高亮请使用程序化 API），所以走原生事件，
-  // 避免给容器 div 加 onClick 引发的 a11y 规则误报。
+  // 用原生 click 监听挂在容器上；高亮的「点击选中」不是真正的按钮交互，
+  // 不走 onClick 是为了避免给容器 div 加 onClick 引发的 a11y 规则误报。
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -306,7 +324,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         改用 <svg> 渲染，所有选框是 <rect>：
         - 比 <span> 绝对定位更适合「形状/笔触」类视觉表达（描边、圆角、未来可扩展斜线/波浪线下划线等）；
         - 单个 SVG 容器即可承载全部矩形，DOM 节点更少；
-        - 仍保留 hsn-selection-rect--highlight 的 pointer-events:auto，确保「点击高亮移除」生效。
+        - 选中态用 hsn-selection-rect--selected（带描边），未选中态用 hsn-selection-rect--highlight。
         SVG 用 preserveAspectRatio="none" 让坐标系等价于像素坐标。
       */}
       <svg
@@ -320,14 +338,18 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           rs.map((r) => (
             <rect
               key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
-              className="hsn-selection-rect hsn-selection-rect--highlight"
+              className={`hsn-selection-rect ${
+                id === selectedRangeId
+                  ? 'hsn-selection-rect--selected'
+                  : 'hsn-selection-rect--highlight'
+              }`}
               x={r.x}
               y={r.y}
               width={r.width}
               height={r.height}
               rx={2}
               ry={2}
-              {...(highlightColor ? { fill: highlightColor } : null)}
+              {...(highlightColor && id !== selectedRangeId ? { fill: highlightColor } : null)}
             />
           )),
         )}
