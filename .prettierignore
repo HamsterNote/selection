@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-demo/
+coverage/
+*.log
+package-lock.json
+pnpm-lock.yaml
+yarn.lock

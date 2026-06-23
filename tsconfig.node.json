@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.cache/tsc-node",
+    "allowImportingTsExtensions": false
+  },
+  "include": ["vite.config.ts", "vite.demo.config.ts", "eslint.config.js"]
+}

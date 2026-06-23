@@ -1,0 +1,53 @@
+.hsn-selection-container {
+  position: relative;
+  line-height: 1.8;
+  user-select: text;
+  cursor: text;
+  word-break: break-word;
+}
+
+/* 高亮标记 */
+.hsn-selection-highlight {
+  background-color: rgba(255, 213, 79, 0.4);
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  /* 悬停时加深背景色 */
+  &:hover {
+    background-color: rgba(255, 213, 79, 0.7);
+  }
+}
+
+/* 工具栏按钮 */
+.hsn-selection-toolbar {
+  position: absolute;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #2d2d2d;
+  border-radius: 6px;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.15),
+    0 0 1px rgba(0, 0, 0, 0.2);
+  transform: translateX(-50%);
+  user-select: none;
+}
+
+.hsn-selection-toolbar-btn {
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.15);
+  }
+}
