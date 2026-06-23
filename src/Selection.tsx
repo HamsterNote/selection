@@ -1,5 +1,5 @@
-import { useCallback, useRef } from 'react';
-import type { SelectionProps, SelectionRange } from './types';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { OverlayRect, SelectionProps, SelectionRange } from './types';
 import { useTextSelection } from './useTextSelection';
 import './style.css';
 
@@ -9,24 +9,162 @@ function generateId(): string {
 }
 
 /**
+ * 根据字符偏移量在容器内创建一个 DOM Range
+ * 通过 TreeWalker 遍历所有文本节点，累加长度找到对应的 (node, offset)
+ */
+function createRangeFromOffsets(
+  container: HTMLElement,
+  start: number,
+  end: number,
+): Range | null {
+  if (start < 0 || end < start) return null;
+
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let charCount = 0;
+  let startNode: Text | null = null;
+  let startOffset = 0;
+  let endNode: Text | null = null;
+  let endOffset = 0;
+
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    const nextCount = charCount + node.length;
+
+    if (startNode === null && start <= nextCount) {
+      startNode = node;
+      startOffset = start - charCount;
+    }
+    if (end <= nextCount) {
+      endNode = node;
+      endOffset = end - charCount;
+      break;
+    }
+
+    charCount = nextCount;
+    node = walker.nextNode() as Text | null;
+  }
+
+  if (!startNode || !endNode) return null;
+
+  try {
+    const range = document.createRange();
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+    return range;
+  } catch {
+    return null;
+  }
+}
+
+/** 把 Range 的 ClientRects 换算为相对容器的 Overlay 矩形数组（多行可能多个） */
+function rangeToOverlayRects(range: Range, container: HTMLElement): OverlayRect[] {
+  const containerRect = container.getBoundingClientRect();
+  const rects = range.getClientRects();
+  const out: OverlayRect[] = [];
+  for (let i = 0; i < rects.length; i += 1) {
+    const r = rects[i];
+    if (r.width <= 0 || r.height <= 0) continue;
+    out.push({
+      x: r.left - containerRect.left,
+      y: r.top - containerRect.top,
+      width: r.width,
+      height: r.height,
+    });
+  }
+  return out;
+}
+
+/** 浅比较两个持久 rect 列表，用于避免重复 setState 触发渲染循环 */
+function rectListsEqual(
+  a: Array<{ id: string; rects: OverlayRect[] }>,
+  b: Array<{ id: string; rects: OverlayRect[] }>,
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].id !== b[i].id) return false;
+    const ra = a[i].rects;
+    const rb = b[i].rects;
+    if (ra.length !== rb.length) return false;
+    for (let j = 0; j < ra.length; j += 1) {
+      if (
+        ra[j].x !== rb[j].x ||
+        ra[j].y !== rb[j].y ||
+        ra[j].width !== rb[j].width ||
+        ra[j].height !== rb[j].height
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
  * Selection 组件
  *
- * 用于在文本内容上实现高亮选区功能：
- * 1. 渲染文本，并将已有的 ranges 高亮显示
- * 2. 用户选中文本后弹出工具栏，点击确认触发 onSelect
- * 3. 点击已有高亮区域触发 onRemove
+ * 设计要点：
+ * 1. children 原样渲染到内容层（contentRef），组件不会修改/包装它们；
+ * 2. 已确认的 ranges 与正在进行的选区都以「绝对定位的矩形」形式画在 Overlay 层上，
+ *    通过 DOM Range + getClientRects 计算出每一行对应的矩形；
+ * 3. 通过原生 ::selection 透明 + 自定义粉色 Overlay 实现自定义选择样式。
  */
 export function Selection({
-  content,
+  children,
   ranges,
   onSelect,
   onRemove,
   highlightColor,
+  selectionColor,
   className,
 }: SelectionProps): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { selectedText, startIndex, endIndex, hasSelection, clear, toolbar } =
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const { selectedText, startIndex, endIndex, hasSelection, clear, toolbar, rects } =
     useTextSelection(containerRef);
+
+  /** 每个已确认 range 对应的 Overlay 矩形组 */
+  const [persistedRects, setPersistedRects] = useState<
+    Array<{ id: string; rects: OverlayRect[] }>
+  >([]);
+
+  /**
+   * 计算所有持久 range 的 Overlay 矩形。
+   * 用函数式 setState + 浅比较，避免重复触发渲染。
+   */
+  const recomputePersistedRects = useCallback(() => {
+    const container = containerRef.current;
+    const next: Array<{ id: string; rects: OverlayRect[] }> = [];
+    if (container) {
+      for (const range of ranges) {
+        const domRange = createRangeFromOffsets(container, range.start, range.end);
+        if (!domRange) continue;
+        next.push({ id: range.id, rects: rangeToOverlayRects(domRange, container) });
+      }
+    }
+    setPersistedRects((prev) => (rectListsEqual(prev, next) ? prev : next));
+  }, [ranges]);
+
+  // ranges 变化时同步重算（layout effect 避免闪烁）。
+  // 这是 React 官方推荐的 DOM 测量模式：useLayoutEffect 读取 DOM → setState 重渲。
+  // 浅比较保证幂等，不会循环。lint 的 set-state-in-effect 在此模式下为误报。
+  useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    recomputePersistedRects();
+  }, [recomputePersistedRects]);
+
+  // 容器尺寸变化（窗口 resize、字体加载、外层 flex 重排）时重算
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => recomputePersistedRects());
+    ro.observe(container);
+    window.addEventListener('resize', recomputePersistedRects);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', recomputePersistedRects);
+    };
+  }, [recomputePersistedRects]);
 
   /** 确认选区：构造 SelectionRange 并回调 */
   const handleConfirm = useCallback(() => {
@@ -44,54 +182,91 @@ export function Selection({
     clear();
   }, [hasSelection, selectedText, startIndex, endIndex, onSelect, clear]);
 
-  /**
-   * 渲染高亮文本
-   * 将 content 按已有 ranges 分段：普通文本 + 高亮片段交替
-   */
-  const renderHighlightedContent = (): React.ReactNode[] => {
-    if (ranges.length === 0) return [content];
+  // 容器点击：用于「点击高亮以移除」的命中测试。
+  // 高亮 Overlay 在文字下方（pointer-events: none，避免吞掉选择行为），
+  // 所以这里读容器坐标并和持久 rect 做矩形包含检测。
+  // 如果当前是「拖选完成」的 click（getSelection 仍有文本），则不触发移除。
+  const handleContainerClick = useCallback(
+    (e: MouseEvent) => {
+      if (!onRemove) return;
+      const native = window.getSelection();
+      if (native && !native.isCollapsed && native.toString().trim()) return;
 
-    // 按起始位置排序，避免乱序
-    const sorted = [...ranges].sort((a, b) => a.start - b.start);
-    const parts: React.ReactNode[] = [];
-    let cursor = 0;
+      const container = containerRef.current;
+      if (!container) return;
+      const cRect = container.getBoundingClientRect();
+      const x = e.clientX - cRect.left;
+      const y = e.clientY - cRect.top;
 
-    for (const range of sorted) {
-      if (range.start > cursor) {
-        parts.push(content.slice(cursor, range.start));
+      for (const { id, rects: rs } of persistedRects) {
+        for (const r of rs) {
+          if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
+            onRemove(id);
+            return;
+          }
+        }
       }
-      parts.push(
-        <button
-          key={range.id}
-          type="button"
-          className="hsn-selection-highlight"
-          style={highlightColor ? { backgroundColor: highlightColor } : undefined}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove?.(range.id);
-          }}
-          title="点击移除高亮"
-        >
-          {content.slice(range.start, range.end)}
-        </button>,
-      );
-      cursor = range.end;
-    }
+    },
+    [onRemove, persistedRects],
+  );
 
-    if (cursor < content.length) {
-      parts.push(content.slice(cursor));
-    }
-
-    return parts;
-  };
+  // 用原生 click 监听挂在容器上；高亮的「点击移除」不是真正的按钮交互，
+  // 它伴随键盘操作没有合理语义（要移除高亮请使用程序化 API），所以走原生事件，
+  // 避免给容器 div 加 onClick 引发的 a11y 规则误报。
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener('click', handleContainerClick);
+    return () => {
+      container.removeEventListener('click', handleContainerClick);
+    };
+  }, [handleContainerClick]);
 
   return (
     <div
       ref={containerRef}
       className={`hsn-selection-container${className ? ` ${className}` : ''}`}
     >
-      {renderHighlightedContent()}
+      {/* Overlay 层（在内容下方）：持久高亮 + 当前选区，纯视觉，不拦截鼠标 */}
+      <div className="hsn-selection-overlay" aria-hidden>
+        {persistedRects.map(({ id, rects: rs }) =>
+          rs.map((r) => (
+            <span
+              key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
+              className="hsn-selection-rect hsn-selection-rect--highlight"
+              style={{
+                left: r.x,
+                top: r.y,
+                width: r.width,
+                height: r.height,
+                ...(highlightColor ? { backgroundColor: highlightColor } : null),
+              }}
+            />
+          )),
+        )}
 
+        {hasSelection &&
+          rects.map((r) => (
+            <span
+              key={`active-${r.x},${r.y},${r.width},${r.height}`}
+              className="hsn-selection-rect hsn-selection-rect--active"
+              style={{
+                left: r.x,
+                top: r.y,
+                width: r.width,
+                height: r.height,
+                ...(selectionColor ? { backgroundColor: selectionColor } : null),
+              }}
+            />
+          ))}
+      </div>
+
+      {/* 内容层：children 原样渲染，不做任何包装 */}
+      <div ref={contentRef} className="hsn-selection-content">
+        {children}
+      </div>
+
+      {/* 工具栏 */}
       {toolbar && hasSelection && (
         <div className="hsn-selection-toolbar" style={{ left: toolbar.x, top: toolbar.y }}>
           <button

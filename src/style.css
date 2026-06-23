@@ -1,26 +1,66 @@
 .hsn-selection-container {
   position: relative;
   line-height: 1.8;
-  user-select: text;
   cursor: text;
   word-break: break-word;
 }
 
-/* 高亮标记 */
-.hsn-selection-highlight {
-  background-color: rgba(255, 213, 79, 0.4);
-  border-radius: 2px;
-  padding: 0 1px;
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-
-  /* 悬停时加深背景色 */
-  &:hover {
-    background-color: rgba(255, 213, 79, 0.7);
-  }
+/* 内容层：children 原样渲染 */
+.hsn-selection-content {
+  position: relative;
+  z-index: 1;
+  user-select: text;
 }
 
-/* 工具栏按钮 */
+/* 隐藏原生选择背景：自定义 Overlay 替代 */
+/* 两种形式同时写：无空格匹配元素自身（覆盖直接文本节点子），
+   有空格匹配后代元素。仅写后代选择器时，children 是纯文本会漏原生蓝色背景。 */
+.hsn-selection-content::selection,
+.hsn-selection-content ::selection {
+  background: transparent;
+  color: inherit;
+}
+.hsn-selection-content::-moz-selection,
+.hsn-selection-content ::-moz-selection {
+  background: transparent;
+  color: inherit;
+}
+
+/* Overlay 层：与内容层重叠的绝对定位画布 */
+.hsn-selection-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 通用矩形：绝对定位，圆角，过渡 */
+.hsn-selection-rect {
+  position: absolute;
+  border-radius: 2px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  transition: background-color 0.15s ease;
+}
+
+/* 持久高亮：黄色，可点击移除 */
+.hsn-selection-rect--highlight {
+  background-color: rgba(255, 213, 79, 0.4);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.hsn-selection-rect--highlight:hover {
+  background-color: rgba(255, 213, 79, 0.7);
+}
+
+/* 当前选择中：粉色，不拦截鼠标（不影响 Selection 拖动） */
+.hsn-selection-rect--active {
+  background-color: rgba(255, 105, 180, 0.45);
+  pointer-events: none;
+}
+
+/* 工具栏 */
 .hsn-selection-toolbar {
   position: absolute;
   z-index: 1000;

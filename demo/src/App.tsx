@@ -42,12 +42,9 @@ export default function App() {
           border: '1px solid #e8e8e8',
         }}
       >
-        <Selection
-          content={SAMPLE_TEXT}
-          ranges={ranges}
-          onSelect={handleSelect}
-          onRemove={handleRemove}
-        />
+        <Selection ranges={ranges} onSelect={handleSelect} onRemove={handleRemove}>
+          {SAMPLE_TEXT}
+        </Selection>
       </div>
 
       <div style={{ marginTop: 32 }}>
