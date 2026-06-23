@@ -52,14 +52,15 @@ function rangeToOverlayRects(range: Range, container: HTMLElement): OverlayRect[
 }
 
 /**
- * 内部选区状态。把所有派生数据（含工具栏坐标与 Overlay 矩形）一次性写入，
+ * 内部选区状态。把所有派生数据（Overlay 矩形）一次性写入，
  * 这样可以避免在外层 useEffect 里再 setState 触发 react-hooks/set-state-in-effect。
+ * 注意：曾经的 toolbar 字段已移除——高亮按钮不再由组件内部渲染，
+ * 改由调用方在 Demo 层通过 ref.highlight() 控制。
  */
 interface InternalSelectionState {
   selectedText: string;
   startIndex: number;
   endIndex: number;
-  toolbar: { x: number; y: number } | null;
   /** 正在选择时的 Overlay 矩形（多行可能多个） */
   rects: OverlayRect[];
 }
@@ -68,7 +69,6 @@ const EMPTY_STATE: InternalSelectionState = {
   selectedText: '',
   startIndex: -1,
   endIndex: -1,
-  toolbar: null,
   rects: [],
 };
 
@@ -77,7 +77,6 @@ const EMPTY_STATE: InternalSelectionState = {
  *
  * 监听 document.selectionchange，提取：
  * - 选中文本 + 字符偏移量（start/end）
- * - 工具栏坐标（基于选区 boundingClientRect）
  * - 选区的多行矩形（用于绘制 Overlay）
  *
  * 所有坐标均相对于 container 左上角。
@@ -85,7 +84,6 @@ const EMPTY_STATE: InternalSelectionState = {
 export function useTextSelection(
   containerRef: React.RefObject<HTMLElement | null>,
 ): UseTextSelectionResult & {
-  toolbar: { x: number; y: number } | null;
   rects: OverlayRect[];
 } {
   const [state, setState] = useState<InternalSelectionState>(EMPTY_STATE);
@@ -113,18 +111,12 @@ export function useTextSelection(
     }
 
     const nativeRange = selection.getRangeAt(0);
-    const rect = nativeRange.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
     const rects = rangeToOverlayRects(nativeRange, container);
 
     setState({
       selectedText: text,
       startIndex: Math.min(offsets.start, offsets.end),
       endIndex: Math.max(offsets.start, offsets.end),
-      toolbar: {
-        x: rect.left + rect.width / 2 - containerRect.left,
-        y: rect.top - containerRect.top - 8,
-      },
       rects,
     });
   }, [containerRef]);
@@ -149,7 +141,6 @@ export function useTextSelection(
     endIndex: state.endIndex,
     hasSelection,
     clear,
-    toolbar: hasSelection ? state.toolbar : null,
     rects: hasSelection ? state.rects : [],
   };
 }

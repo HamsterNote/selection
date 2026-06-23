@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { OverlayRect, SelectionProps, SelectionRange } from './types';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
+import type { OverlayRect, SelectionProps, SelectionRange, SelectionRef } from './types';
 import { useTextSelection } from './useTextSelection';
 import './style.css';
 
@@ -106,21 +114,35 @@ function rectListsEqual(
  * 1. children 原样渲染到内容层（contentRef），组件不会修改/包装它们；
  * 2. 已确认的 ranges 与正在进行的选区都以「绝对定位的矩形」形式画在 Overlay 层上，
  *    通过 DOM Range + getClientRects 计算出每一行对应的矩形；
- * 3. 通过原生 ::selection 透明 + 自定义粉色 Overlay 实现自定义选择样式。
+ * 3. 通过原生 ::selection 透明 + 自定义粉色 Overlay 实现自定义选择样式；
+ * 4. 高亮按钮不再由组件内部渲染：通过 ref 暴露 highlight()/clear() 命令式 API
+ *    供调用方在任意位置（例如自定义工具栏/外部按钮）触发。
+ *
+ * 钩子（均在 props 中传入）：
+ * - onSelectionStart(mousePos, selection)：容器内 mousedown 时触发；
+ * - onSelectionEnd(mousePos, selection)：容器内 mouseup 且仍有有效选区时触发；
+ * - onSelect(range)：执行 highlight() 后构造的 range 通过此回调上报（保持原行为）；
+ * - onHighlight(range)：每次执行 highlight() 时额外触发，专门用于高亮叙事。
  */
-export function Selection({
-  children,
-  ranges,
-  onSelect,
-  onRemove,
-  highlightColor,
-  selectionColor,
-  className,
-}: SelectionProps): React.ReactElement {
+export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selection(
+  {
+    children,
+    ranges,
+    onSelect,
+    onRemove,
+    onSelectionStart,
+    onSelectionEnd,
+    onHighlight,
+    highlightColor,
+    selectionColor,
+    className,
+  },
+  ref,
+): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const { selectedText, startIndex, endIndex, hasSelection, clear, toolbar, rects } =
+  const { selectedText, startIndex, endIndex, hasSelection, clear, rects } =
     useTextSelection(containerRef);
 
   /** 每个已确认 range 对应的 Overlay 矩形组 */
@@ -149,7 +171,6 @@ export function Selection({
   // 这是 React 官方推荐的 DOM 测量模式：useLayoutEffect 读取 DOM → setState 重渲。
   // 浅比较保证幂等，不会循环。lint 的 set-state-in-effect 在此模式下为误报。
   useLayoutEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     recomputePersistedRects();
   }, [recomputePersistedRects]);
 
@@ -166,7 +187,11 @@ export function Selection({
     };
   }, [recomputePersistedRects]);
 
-  /** 确认选区：构造 SelectionRange 并回调 */
+  /**
+   * 确认选区：构造 SelectionRange 并回调。
+   * 触发顺序：onSelect → onHighlight → clear()
+   * 这样在 onHighlight 中读到的 range 与 onSelect 是同一份，便于做对称叙事。
+   */
   const handleConfirm = useCallback(() => {
     if (!hasSelection || !selectedText) return;
 
@@ -179,8 +204,57 @@ export function Selection({
     };
 
     onSelect?.(range);
+    onHighlight?.(range);
     clear();
-  }, [hasSelection, selectedText, startIndex, endIndex, onSelect, clear]);
+  }, [hasSelection, selectedText, startIndex, endIndex, onSelect, onHighlight, clear]);
+
+  // 用 useImperativeHandle 暴露命令式 API。
+  // 设计上仅暴露 highlight/clear 两个动作，不暴露内部状态——
+  // 内部状态（选区文本、坐标）走 props 回调上报，避免外部直接读取造成耦合。
+  useImperativeHandle(
+    ref,
+    () => ({
+      highlight: handleConfirm,
+      clear,
+    }),
+    [handleConfirm, clear],
+  );
+
+  // 容器 mousedown：把 selectionchange 之外的「开始」语义补齐。
+  // selectionchange 仅在选区已经变化时触发，无法表达「用户开始按下鼠标准备拖选」这个动作，
+  // 因此用原生 mousedown 作为开始信号；mouseup 时若仍有选区则视为结束。
+  // 选区在 mousedown 时通常仍是上一次状态或空，因此原始 selection 直接传出供外部观察。
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (!onSelectionStart) return;
+      const selection = window.getSelection();
+      if (!selection) return;
+      onSelectionStart({ x: e.clientX, y: e.clientY }, selection);
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (!onSelectionEnd) return;
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+      // 校验选区是否仍位于容器内（防止跨容器拖动尾点导致误触发）
+      const range = selection.getRangeAt(0);
+      if (!container.contains(range.commonAncestorContainer)) return;
+      if (!selection.toString().trim()) return;
+      onSelectionEnd({ x: e.clientX, y: e.clientY }, selection);
+    };
+
+    container.addEventListener('mousedown', handleMouseDown);
+    // mouseup 监听挂在 document 上：用户可能在容器内按下后拖出容器再松开，
+    // 这种情况下 mouseup 不会冒泡到容器，所以要在 document 层捕获。
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      container.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [onSelectionStart, onSelectionEnd]);
 
   // 容器点击：用于「点击高亮以移除」的命中测试。
   // 高亮 Overlay 在文字下方（pointer-events: none，避免吞掉选择行为），
@@ -278,22 +352,8 @@ export function Selection({
       <div ref={contentRef} className="hsn-selection-content">
         {children}
       </div>
-
-      {/* 工具栏 */}
-      {toolbar && hasSelection && (
-        <div className="hsn-selection-toolbar" style={{ left: toolbar.x, top: toolbar.y }}>
-          <button
-            type="button"
-            className="hsn-selection-toolbar-btn"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={handleConfirm}
-          >
-            高亮
-          </button>
-        </div>
-      )}
     </div>
   );
-}
+});
 
 export default Selection;
