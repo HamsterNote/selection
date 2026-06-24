@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { percentRectsToPixelRects } from './geometry';
+import { percentRectsToPixelRects, pixelRectsToPercentRects } from './geometry';
 import {
   getRegisteredContainers,
   registerLinkedContainer,
@@ -286,12 +286,16 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   linkedDataRef.current = linkedData;
   const onLinkedDataChangeRef = useRef(onLinkedDataChange);
   onLinkedDataChangeRef.current = onLinkedDataChange;
+  // 桥接 ref：联动模式下拖拽手柄监听器需要读取最新的 onLinkedUpdateRange
+  const onLinkedUpdateRangeRef = useRef(onLinkedUpdateRange);
+  onLinkedUpdateRangeRef.current = onLinkedUpdateRange;
+  // 桥接 ref：startHandleDrag（useCallback 空 deps）需要读取当前 linkedSelectionId
+  const linkedSelectionIdRef = useRef(linkedSelectionId);
+  linkedSelectionIdRef.current = linkedSelectionId;
   const currentSelectedRangeId = linkedContext
     ? linkedContext.data.selectedRangeId
     : selectedRangeId;
   const selectRange = linkedContext ? onLinkedSelectRange : onSelectRange;
-
-  void onLinkedUpdateRange;
 
   const getLinkedSelectionOrder = useCallback(
     () => getRegisteredContainers().map((entry) => entry.selectionId),
@@ -681,8 +685,29 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         // 缓存拖动锚点：不动的那个边界。拖 start 锚点=end，拖 end 锚点=start。
         // 活跃选区从 ref 读取当前 endIndex/startIndex；高亮 range 从 ranges 读取当前 range 的 end/start。
         if (rangeId) {
-          const r = rangesRef.current.find((x) => x.id === rangeId);
-          dragAnchorRef.current = r ? (which === 'start' ? r.end : r.start) : -1;
+          // 联动模式：从 linkedData 中查找对应 item，仅 same-Selection 可拖拽
+          const linkedData = linkedDataRef.current;
+          const currentSelId = linkedSelectionIdRef.current;
+          if (linkedData && currentSelId) {
+            const item = linkedData.items.find((it) => it.id === rangeId);
+            if (!item) {
+              dragAnchorRef.current = -1;
+              return;
+            }
+            // cross-Selection 不允许拖拽（anchor=-1 会在 pointermove 中被拦截）
+            if (
+              item.start.selectionId !== currentSelId ||
+              item.end.selectionId !== currentSelId
+            ) {
+              dragAnchorRef.current = -1;
+              return;
+            }
+            dragAnchorRef.current = which === 'start' ? item.end.offset : item.start.offset;
+          } else {
+            // legacy 模式
+            const r = rangesRef.current.find((x) => x.id === rangeId);
+            dragAnchorRef.current = r ? (which === 'start' ? r.end : r.start) : -1;
+          }
         } else {
           dragAnchorRef.current = which === 'start' ? endIndexRef.current : startIndexRef.current;
         }
@@ -725,33 +750,80 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       }
       const newOffset = preRange.toString().length;
 
-      const persistedId = dragPersistedIdRef.current;
-      if (persistedId) {
-        const cur = rangesRef.current.find((r) => r.id === persistedId);
-        if (!cur) return;
-        const anchor = dragAnchorRef.current;
-        if (anchor < 0) return;
-        // 锚点固定为拖动开始时的不动边界，移动边界跟随鼠标，允许越过实现反向。
-        const lo = Math.min(anchor, newOffset);
-        const hi = Math.max(anchor, newOffset);
-        if (hi - lo < 1) return;
-        if (lo === cur.start && hi === cur.end) return;
+const persistedId = dragPersistedIdRef.current;
+        if (persistedId) {
+          // 联动模式分支
+          const linkedData = linkedDataRef.current;
+          const currentSelId = linkedSelectionIdRef.current;
+          if (linkedData && currentSelId) {
+            const item = linkedData.items.find((it) => it.id === persistedId);
+            if (!item) return;
+            // cross-Selection 条目不允许拖拽（anchor 在 startHandleDrag 中被设为 -1）
+            if (
+              item.start.selectionId !== currentSelId ||
+              item.end.selectionId !== currentSelId
+            ) {
+              return;
+            }
+            const anchor = dragAnchorRef.current;
+            if (anchor < 0) return;
+            const lo = Math.min(anchor, newOffset);
+            const hi = Math.max(anchor, newOffset);
+            if (hi - lo < 1) return;
+            if (lo === item.start.offset && hi === item.end.offset) return;
 
-        const domRange = createRangeFromOffsets(container, lo, hi);
-        if (!domRange) return;
-        const updated: SelectionRange = {
-          ...cur,
-          start: lo,
-          end: hi,
-          text: domRange.toString(),
-        };
-        // 仅上报更新；不设原生选区。
-        // persistedRects 由 ranges prop 变化驱动重算（useLayoutEffect），无需 selectionchange。
-        // 若设原生选区会触发 hasSelection=true → onSelectRange(null) 副作用，
-        // 清空 selectedRangeId 导致高亮样式与 Popover 消失。
-        onUpdateRangeRef.current?.(updated);
-        return;
-      }
+            const domRange = createRangeFromOffsets(container, lo, hi);
+            if (!domRange) return;
+            // 重算当前 selection 的百分比矩形并更新联动数据
+            const pixelRects = rangeToOverlayRects(domRange, container);
+            const percentRects = pixelRectsToPercentRects(pixelRects, container);
+            const updatedItem: LinkedSelectionRange = {
+              ...item,
+              start: { ...item.start, offset: lo },
+              end: { ...item.end, offset: hi },
+              text: domRange.toString(),
+              rectsBySelectionId: {
+                ...item.rectsBySelectionId,
+                [currentSelId]: percentRects,
+              },
+            };
+            const nextData: LinkedSelectionData = {
+              ...linkedData,
+              items: linkedData.items.map((it) =>
+                it.id === persistedId ? updatedItem : it,
+              ),
+            };
+            onLinkedUpdateRangeRef.current?.(updatedItem);
+            onLinkedDataChangeRef.current?.(nextData);
+            return;
+          }
+
+          // legacy 模式分支
+          const cur = rangesRef.current.find((r) => r.id === persistedId);
+          if (!cur) return;
+          const anchor = dragAnchorRef.current;
+          if (anchor < 0) return;
+          // 锚点固定为拖动开始时的不动边界，移动边界跟随鼠标，允许越过实现反向。
+          const lo = Math.min(anchor, newOffset);
+          const hi = Math.max(anchor, newOffset);
+          if (hi - lo < 1) return;
+          if (lo === cur.start && hi === cur.end) return;
+
+          const domRange = createRangeFromOffsets(container, lo, hi);
+          if (!domRange) return;
+          const updated: SelectionRange = {
+            ...cur,
+            start: lo,
+            end: hi,
+            text: domRange.toString(),
+          };
+          // 仅上报更新；不设原生选区。
+          // persistedRects 由 ranges prop 变化驱动重算（useLayoutEffect），无需 selectionchange。
+          // 若设原生选区会触发 hasSelection=true → onSelectRange(null) 副作用，
+          // 清空 selectedRangeId 导致高亮样式与 Popover 消失。
+          onUpdateRangeRef.current?.(updated);
+          return;
+        }
 
       const anchor = dragAnchorRef.current;
       if (anchor < 0) return;
@@ -1015,8 +1087,21 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         );
       })()}
 
-      {/* 已选中高亮 range 的首尾手柄：与活跃选区手柄互斥。 */}
-      {!linkedContext && !hasSelection && currentSelectedRangeId && (() => {
+      {/* 已选中高亮 range 的首尾手柄：与活跃选区手柄互斥。联动模式仅 same-Selection 条目显示手柄。 */}
+      {!hasSelection && currentSelectedRangeId && (() => {
+        // 联动模式：cross-Selection 条目不渲染拖拽手柄
+        if (linkedContext) {
+          const item = linkedContext.data.items.find(
+            (it) => it.id === currentSelectedRangeId,
+          );
+          if (!item) return null;
+          if (
+            item.start.selectionId !== linkedContext.selectionId ||
+            item.end.selectionId !== linkedContext.selectionId
+          ) {
+            return null;
+          }
+        }
         const entry = persistedRects.find((p) => p.id === currentSelectedRangeId);
         if (!entry || entry.rects.length === 0) return null;
         const rs = entry.rects;
