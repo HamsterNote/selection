@@ -3,6 +3,8 @@
   line-height: 1.8;
   cursor: text;
   word-break: break-word;
+  /* 整个容器默认不可选中，只有内容层 .hsn-selection-content 设为可选中 */
+  user-select: none;
 }
 
 /* 内容层：children 原样渲染 */
@@ -133,4 +135,9 @@
   &:focus {
     outline: none;
   }
+}
+
+/* 拖拽激活时手柄穿透鼠标，避免 caretRangeFromPoint 命中手柄自身导致选区跳变 */
+.hsn-selection-handle--dragging {
+  pointer-events: none;
 }

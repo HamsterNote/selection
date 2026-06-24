@@ -330,6 +330,17 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       const native = window.getSelection();
       if (native && !native.isCollapsed && native.toString().trim()) return;
 
+      // 点击来自 Popover 或选区 Popover 内部时，不做命中测试。
+      // 否则点击删除按钮等操作会冒泡到 container click，
+      // 导致对 Popover 位置坐标做 hit-test 选中了下方的高亮。
+      const target = e.target;
+      if (target instanceof Node) {
+        const popoverEl = popoverRef.current;
+        const selectionPopoverEl = selectionPopoverRef.current;
+        if (popoverEl && popoverEl.contains(target)) return;
+        if (selectionPopoverEl && selectionPopoverEl.contains(target)) return;
+      }
+
       const container = containerRef.current;
       if (!container) return;
       const cRect = container.getBoundingClientRect();
@@ -582,7 +593,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         <>
           <button
             type="button"
-            className="hsn-selection-handle hsn-selection-handle--start"
+            className={`hsn-selection-handle hsn-selection-handle--start${dragHandle ? ' hsn-selection-handle--dragging' : ''}`}
             tabIndex={-1}
             aria-label="拖动以调整选区起点"
             style={{
@@ -593,7 +604,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           />
           <button
             type="button"
-            className="hsn-selection-handle hsn-selection-handle--end"
+            className={`hsn-selection-handle hsn-selection-handle--end${dragHandle ? ' hsn-selection-handle--dragging' : ''}`}
             tabIndex={-1}
             aria-label="拖动以调整选区终点"
             style={{
