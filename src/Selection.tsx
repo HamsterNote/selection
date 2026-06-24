@@ -9,6 +9,11 @@ import {
   useState,
 } from 'react';
 import { percentRectsToPixelRects } from './geometry';
+import {
+  getRegisteredContainers,
+  registerLinkedContainer,
+  syncSelectionOrder,
+} from './linkedRegistry';
 import type {
   HandlePosition,
   HandleRenderProps,
@@ -273,14 +278,23 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     () => getLinkedModeContext(linkedMode, selectionId, linkedData),
     [linkedMode, selectionId, linkedData],
   );
+  const linkedSelectionId = linkedContext?.selectionId ?? null;
+  const linkedDataRef = useRef(linkedData);
+  linkedDataRef.current = linkedData;
+  const onLinkedDataChangeRef = useRef(onLinkedDataChange);
+  onLinkedDataChangeRef.current = onLinkedDataChange;
   const currentSelectedRangeId = linkedContext
     ? linkedContext.data.selectedRangeId
     : selectedRangeId;
   const selectRange = linkedContext ? onLinkedSelectRange : onSelectRange;
 
-  void onLinkedDataChange;
   void onLinkedSelect;
   void onLinkedUpdateRange;
+
+  const getLinkedSelectionOrder = useCallback(
+    () => getRegisteredContainers().map((entry) => entry.selectionId),
+    [],
+  );
 
   useEffect(() => {
     if (!linkedMode) return;
@@ -289,6 +303,37 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       console.warn('Selection linkedMode requires a non-empty selectionId.');
     }
   }, [linkedMode, selectionId]);
+
+  useEffect(() => {
+    if (!linkedSelectionId) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const unregister = registerLinkedContainer(linkedSelectionId, container);
+    syncSelectionOrder(
+      linkedDataRef.current,
+      getLinkedSelectionOrder(),
+      onLinkedDataChangeRef.current,
+    );
+
+    return () => {
+      unregister();
+      syncSelectionOrder(
+        linkedDataRef.current,
+        getLinkedSelectionOrder(),
+        onLinkedDataChangeRef.current,
+      );
+    };
+  }, [getLinkedSelectionOrder, linkedSelectionId]);
+
+  useEffect(() => {
+    if (!linkedContext) return;
+    syncSelectionOrder(
+      linkedContext.data,
+      getLinkedSelectionOrder(),
+      onLinkedDataChange,
+    );
+  }, [getLinkedSelectionOrder, linkedContext, onLinkedDataChange]);
 
   // 颜色优先级：markerColors > legacy props > CSS 默认
   // 活跃选区：newSelectionOptions.color > markerColors.selection.fill > selectionColor > CSS

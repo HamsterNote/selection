@@ -8,24 +8,35 @@
  */
 
 export { Selection } from './Selection';
-export { useTextSelection } from './useTextSelection';
+export {
+  getRegisteredContainers,
+  registerLinkedContainer,
+  resolveEndpoint,
+  syncSelectionOrder,
+} from './linkedRegistry';
+export type { RegisteredLinkedContainer } from './linkedRegistry';
+export {
+  percentRectListsEqual,
+  percentRectsToPixelRects,
+  pixelRectsToPercentRects,
+} from './geometry';
 export type {
-  SelectionProps,
-  SelectionRange,
-  UseTextSelectionResult,
-  // 命令式 API 引用类型，供外部按钮调用 highlight()/clear()
-  SelectionRef,
-  // 鼠标位置（viewport 坐标），用于 onSelectionStart/onSelectionEnd 钩子
-  MousePosition,
-  // 新绘制选区（活跃、未高亮）的选项集合（颜色等）
-  NewSelectionOptions,
-  // 手柄渲染相关类型
-  SelectionHandleType,
-  SelectionHandleOwner,
   HandlePosition,
   HandleRenderProps,
-  // 标记颜色配置类型
-  MarkerStrokeStyle,
+  LinkedSelectionData,
+  LinkedSelectionRange,
   MarkerColorStyle,
   MarkerColors,
+  MarkerStrokeStyle,
+  MousePosition,
+  NewSelectionOptions,
+  PercentOverlayRect,
+  SelectionEndpoint,
+  SelectionHandleOwner,
+  SelectionHandleType,
+  SelectionProps,
+  SelectionRange,
+  SelectionRef,
+  UseTextSelectionResult,
 } from './types';
+export { useTextSelection } from './useTextSelection';

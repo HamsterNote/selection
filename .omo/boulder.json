@@ -8,7 +8,7 @@
       "plan_name": "multi-selection-linked-ranges-plan",
       "status": "active",
       "started_at": "2026-06-24T10:47:35.766Z",
-      "updated_at": "2026-06-24T11:23:37.248Z",
+      "updated_at": "2026-06-24T11:35:07.752Z",
       "session_ids": [
         "opencode:ses_106c1ebdaffeX08uCWwiYbJHaV"
       ],
@@ -55,6 +55,19 @@
           "status": "completed",
           "ended_at": "2026-06-24T11:23:37.248Z",
           "elapsed_ms": 56435
+        },
+        "todo:4": {
+          "task_key": "todo:4",
+          "task_label": "4",
+          "task_title": "Add linked Selection container registry and endpoint resolution",
+          "session_id": "opencode:ses_106a051d7ffe993uhxjpDsXjCo",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-06-24T11:35:07.752Z",
+          "started_at": "2026-06-24T11:34:24.562Z",
+          "status": "completed",
+          "ended_at": "2026-06-24T11:35:07.752Z",
+          "elapsed_ms": 43190
         }
       }
     }
@@ -62,7 +75,7 @@
   "active_plan": "/home/zhangxiao/frontend/HamsterNote/selection/.omo/plans/multi-selection-linked-ranges-plan.md",
   "started_at": "2026-06-24T10:47:35.766Z",
   "status": "active",
-  "updated_at": "2026-06-24T11:23:37.248Z",
+  "updated_at": "2026-06-24T11:35:07.752Z",
   "session_ids": [
     "opencode:ses_106c1ebdaffeX08uCWwiYbJHaV"
   ],
@@ -109,6 +122,19 @@
       "status": "completed",
       "ended_at": "2026-06-24T11:23:37.248Z",
       "elapsed_ms": 56435
+    },
+    "todo:4": {
+      "task_key": "todo:4",
+      "task_label": "4",
+      "task_title": "Add linked Selection container registry and endpoint resolution",
+      "session_id": "opencode:ses_106a051d7ffe993uhxjpDsXjCo",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-06-24T11:35:07.752Z",
+      "started_at": "2026-06-24T11:34:24.562Z",
+      "status": "completed",
+      "ended_at": "2026-06-24T11:35:07.752Z",
+      "elapsed_ms": 43190
     }
   },
   "agent": "atlas"

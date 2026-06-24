@@ -112,7 +112,7 @@ Your next move: start work now, or run a high-accuracy review first. Full execut
   QA scenarios (name the exact tool + invocation): Happy: run `npm run typecheck 2>&1 | tee .omo/evidence/task-3-multi-selection-linked-ranges-plan.md`; then use Demo/dev or a temporary browser check to inspect `svg rect[data-selection-id]`. Failure: feed linked data for a missing/other `selectionId` and verify no rects render for the current component; record DOM query notes.
   Commit: Y | feat(selection): render linked scoped geometry
 
-- [ ] 4. Add linked Selection container registry and endpoint resolution
+- [x] 4. Add linked Selection container registry and endpoint resolution
   What to do / Must NOT do: Implement a module-local registry/context in `src/Selection.tsx` or a focused helper file with no new dependencies. On mount in `linkedMode`, register `selectionId -> container HTMLElement`; on unmount, unregister it. Preserve DOM order by sorting registered containers with `Node.compareDocumentPosition`, and keep `LinkedSelectionData.selectionOrder` synchronized when `onLinkedDataChange` is available. Detect duplicate `selectionId` and warn in development while ignoring the later duplicate for linked calculations. Provide helpers to resolve a native node/offset to `{ selectionId, offset }` by finding the containing registered container and computing local plain-text offset. Must NOT use global document queries by class name as the primary registry.
   Parallelization: Wave 2 | Blocked by: 1, 2, 3 | Blocks: 5, 6, 7, 9
   References (executor has NO interview context - be exhaustive): `src/Selection.tsx:193`, `src/Selection.tsx:352`, `src/Selection.tsx:691`, `src/useTextSelection.ts:9`, `src/types.ts:164`
