@@ -4,12 +4,16 @@ import {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
+import { percentRectsToPixelRects } from './geometry';
 import type {
   HandlePosition,
   HandleRenderProps,
+  LinkedSelectionData,
+  LinkedSelectionRange,
   OverlayRect,
   SelectionHandleOwner,
   SelectionHandleType,
@@ -19,6 +23,17 @@ import type {
 } from './types';
 import { useTextSelection } from './useTextSelection';
 import './style.css';
+
+type PersistedRectGroup = {
+  id: string;
+  selectionId: string | null;
+  rects: OverlayRect[];
+};
+
+type LinkedModeContext = {
+  selectionId: string;
+  data: LinkedSelectionData;
+};
 
 /** 生成唯一 ID（毫秒时间戳 + 6 位随机串） */
 function generateId(): string {
@@ -92,7 +107,7 @@ function caretInfoFromPoint(
   };
   if (typeof doc.caretRangeFromPoint === 'function') {
     const r = doc.caretRangeFromPoint(x, y);
-    if (r && r.startContainer) return { node: r.startContainer, offset: r.startOffset };
+    if (r?.startContainer) return { node: r.startContainer, offset: r.startOffset };
     return null;
   }
   if (typeof document.caretPositionFromPoint === 'function') {
@@ -123,12 +138,13 @@ function rangeToOverlayRects(range: Range, container: HTMLElement): OverlayRect[
 
 /** 浅比较两个持久 rect 列表，用于避免重复 setState 触发渲染循环 */
 function rectListsEqual(
-  a: Array<{ id: string; rects: OverlayRect[] }>,
-  b: Array<{ id: string; rects: OverlayRect[] }>,
+  a: PersistedRectGroup[],
+  b: PersistedRectGroup[],
 ): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
     if (a[i].id !== b[i].id) return false;
+    if (a[i].selectionId !== b[i].selectionId) return false;
     const ra = a[i].rects;
     const rb = b[i].rects;
     if (ra.length !== rb.length) return false;
@@ -144,6 +160,28 @@ function rectListsEqual(
     }
   }
   return true;
+}
+
+function getLinkedModeContext(
+  linkedMode: boolean | undefined,
+  selectionId: string | undefined,
+  linkedData: LinkedSelectionData | undefined,
+): LinkedModeContext | null {
+  if (!linkedMode || !linkedData) return null;
+  const normalizedSelectionId = selectionId?.trim();
+  if (!normalizedSelectionId) return null;
+  return { selectionId: normalizedSelectionId, data: linkedData };
+}
+
+function isLinkedItemVisibleInSelection(
+  item: LinkedSelectionRange,
+  selectionId: string,
+): boolean {
+  return (
+    item.start.selectionId === selectionId ||
+    item.end.selectionId === selectionId ||
+    item.rectsBySelectionId[selectionId] !== undefined
+  );
 }
 
 /**
@@ -170,6 +208,13 @@ function rectListsEqual(
 export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selection(
   {
     children,
+    selectionId,
+    linkedMode,
+    linkedData,
+    onLinkedDataChange,
+    onLinkedSelect,
+    onLinkedUpdateRange,
+    onLinkedSelectRange,
     ranges,
     selectedRangeId,
     onSelect,
@@ -224,6 +269,26 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   rangesRef.current = ranges;
   const onUpdateRangeRef = useRef(onUpdateRange);
   onUpdateRangeRef.current = onUpdateRange;
+  const linkedContext = useMemo(
+    () => getLinkedModeContext(linkedMode, selectionId, linkedData),
+    [linkedMode, selectionId, linkedData],
+  );
+  const currentSelectedRangeId = linkedContext
+    ? linkedContext.data.selectedRangeId
+    : selectedRangeId;
+  const selectRange = linkedContext ? onLinkedSelectRange : onSelectRange;
+
+  void onLinkedDataChange;
+  void onLinkedSelect;
+  void onLinkedUpdateRange;
+
+  useEffect(() => {
+    if (!linkedMode) return;
+    if (selectionId?.trim()) return;
+    if (import.meta.env.DEV) {
+      console.warn('Selection linkedMode requires a non-empty selectionId.');
+    }
+  }, [linkedMode, selectionId]);
 
   // 颜色优先级：markerColors > legacy props > CSS 默认
   // 活跃选区：newSelectionOptions.color > markerColors.selection.fill > selectionColor > CSS
@@ -271,7 +336,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
   /** 每个已确认 range 对应的 Overlay 矩形组 */
   const [persistedRects, setPersistedRects] = useState<
-    Array<{ id: string; rects: OverlayRect[] }>
+    PersistedRectGroup[]
   >([]);
 
   /**
@@ -280,16 +345,33 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
    */
   const recomputePersistedRects = useCallback(() => {
     const container = containerRef.current;
-    const next: Array<{ id: string; rects: OverlayRect[] }> = [];
+    const next: PersistedRectGroup[] = [];
     if (container) {
-      for (const range of ranges) {
-        const domRange = createRangeFromOffsets(container, range.start, range.end);
-        if (!domRange) continue;
-        next.push({ id: range.id, rects: rangeToOverlayRects(domRange, container) });
+      if (linkedContext) {
+        for (const item of linkedContext.data.items) {
+          if (!isLinkedItemVisibleInSelection(item, linkedContext.selectionId)) continue;
+          const percentRects = item.rectsBySelectionId[linkedContext.selectionId];
+          if (!percentRects) continue;
+          next.push({
+            id: item.id,
+            selectionId: linkedContext.selectionId,
+            rects: percentRectsToPixelRects(percentRects, container),
+          });
+        }
+      } else {
+        for (const range of ranges) {
+          const domRange = createRangeFromOffsets(container, range.start, range.end);
+          if (!domRange) continue;
+          next.push({
+            id: range.id,
+            selectionId: null,
+            rects: rangeToOverlayRects(domRange, container),
+          });
+        }
       }
     }
     setPersistedRects((prev) => (rectListsEqual(prev, next) ? prev : next));
-  }, [ranges]);
+  }, [linkedContext, ranges]);
 
   // ranges 变化时同步重算（layout effect 避免闪烁）。
   // 这是 React 官方推荐的 DOM 测量模式：useLayoutEffect 读取 DOM → setState 重渲。
@@ -329,9 +411,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
     onSelect?.(range);
     onHighlight?.(range);
-    onSelectRange?.(range.id);
+    selectRange?.(range.id);
     clear();
-  }, [hasSelection, selectedText, startIndex, endIndex, onSelect, onHighlight, onSelectRange, clear]);
+  }, [hasSelection, selectedText, startIndex, endIndex, onSelect, onHighlight, selectRange, clear]);
 
   // 用 useImperativeHandle 暴露命令式 API。
   // 设计上仅暴露 highlight/clear 两个动作，不暴露内部状态——
@@ -402,9 +484,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 这实现了「当前新选择而又没高亮的选区」与「已选中的高亮 range」互斥的需求。
   useEffect(() => {
     if (hasSelection) {
-      onSelectRange?.(null);
+      selectRange?.(null);
     }
-  }, [hasSelection, onSelectRange]);
+  }, [hasSelection, selectRange]);
 
   // 容器点击：用于「点击高亮以选中」的命中测试。
   // 高亮 Overlay 在文字下方，这里读容器坐标并和持久 rect 做矩形包含检测。
@@ -412,7 +494,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // Toggle 行为：点击已选中的 range 取消选中，点击未选中的 range 设为选中。
   const handleContainerClick = useCallback(
     (e: MouseEvent) => {
-      if (!onSelectRange) return;
+      if (!selectRange) return;
       // 拖拽手柄结束后浏览器合成 click 事件，此处消费 skip 标记并跳过命中测试，
       // 避免拖拽后误触发 toggle 清空 selectedRangeId。
       if (skipClickRef.current) {
@@ -429,8 +511,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       if (target instanceof Node) {
         const popoverEl = popoverRef.current;
         const selectionPopoverEl = selectionPopoverRef.current;
-        if (popoverEl && popoverEl.contains(target)) return;
-        if (selectionPopoverEl && selectionPopoverEl.contains(target)) return;
+        if (popoverEl?.contains(target)) return;
+        if (selectionPopoverEl?.contains(target)) return;
       }
 
       const container = containerRef.current;
@@ -442,13 +524,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       for (const { id, rects: rs } of persistedRects) {
         for (const r of rs) {
           if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
-            onSelectRange(id === selectedRangeId ? null : id);
+            selectRange(id === currentSelectedRangeId ? null : id);
             return;
           }
         }
       }
     },
-    [onSelectRange, selectedRangeId, persistedRects],
+    [selectRange, currentSelectedRangeId, persistedRects],
   );
 
   // 用原生 click 监听挂在容器上；高亮的「点击选中」不是真正的按钮交互，
@@ -469,17 +551,17 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 紧接着 container 的 click 通过 hit-test 再把新 rect 设为选中，最终状态正确。
   // 点击 popover 内部不应取消选中，所以排除 popoverRef 命中的目标。
   useEffect(() => {
-    if (!selectedRangeId || !onSelectRange) return;
+    if (!currentSelectedRangeId || !selectRange) return;
     const handleDocMouseDown = (e: MouseEvent) => {
       const popoverEl = popoverRef.current;
       if (popoverEl && e.target instanceof Node && popoverEl.contains(e.target)) return;
-      onSelectRange(null);
+      selectRange(null);
     };
     document.addEventListener('mousedown', handleDocMouseDown);
     return () => {
       document.removeEventListener('mousedown', handleDocMouseDown);
     };
-  }, [selectedRangeId, onSelectRange]);
+  }, [currentSelectedRangeId, selectRange]);
 
   /**
    * 手柄 pointerdown：进入拖动模式。
@@ -613,8 +695,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
   // 没有选中、或选中的 id 在 persistedRects 中找不到时为 null（不渲染 Popover）。
   const popoverAnchor = (() => {
-    if (!selectedRangeId || !popover) return null;
-    const entry = persistedRects.find((p) => p.id === selectedRangeId);
+    if (!currentSelectedRangeId || !popover) return null;
+    const entry = persistedRects.find((p) => p.id === currentSelectedRangeId);
     if (!entry || entry.rects.length === 0) return null;
     let top = entry.rects[0];
     for (const r of entry.rects) {
@@ -708,9 +790,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         focusable="false"
         preserveAspectRatio="none"
       >
-        {persistedRects.map(({ id, rects: rs }) =>
+        {persistedRects.map(({ id, selectionId: rectSelectionId, rects: rs }) =>
           rs.map((r) => {
-            const isSelected = id === selectedRangeId;
+            const isSelected = id === currentSelectedRangeId;
             // 选中高亮：markerColors.selectedHighlight > CSS 默认（无 legacy shorthand）
             // 未选中高亮：markerColors.highlight > highlightColor > CSS 默认
             const fill = isSelected
@@ -725,6 +807,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             return (
               <rect
                 key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
+                data-range-id={id}
+                data-selection-id={rectSelectionId ?? ''}
                 className={`hsn-selection-rect ${
                   isSelected
                     ? 'hsn-selection-rect--selected'
@@ -748,6 +832,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           rects.map((r) => (
             <rect
               key={`active-${r.x},${r.y},${r.width},${r.height}`}
+              data-range-id=""
+              data-selection-id={linkedContext?.selectionId ?? ''}
               className="hsn-selection-rect hsn-selection-rect--active"
               x={r.x}
               y={r.y}
@@ -834,22 +920,22 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       })()}
 
       {/* 已选中高亮 range 的首尾手柄：与活跃选区手柄互斥。 */}
-      {!hasSelection && selectedRangeId && (() => {
-        const entry = persistedRects.find((p) => p.id === selectedRangeId);
+      {!linkedContext && !hasSelection && currentSelectedRangeId && (() => {
+        const entry = persistedRects.find((p) => p.id === currentSelectedRangeId);
         if (!entry || entry.rects.length === 0) return null;
         const rs = entry.rects;
         const first = rs[0];
         const last = rs[rs.length - 1];
-        const isDraggingPersisted = !!(dragHandle && dragPersistedId === selectedRangeId);
+        const isDraggingPersisted = !!(dragHandle && dragPersistedId === currentSelectedRangeId);
         return (
           <>
             {renderSingleHandle(
               'start',
               'persisted-range',
-              selectedRangeId,
+              currentSelectedRangeId,
               { x: first.x, y: first.y + first.height / 2 },
               isDraggingPersisted,
-              startHandleDrag('start', selectedRangeId),
+              startHandleDrag('start', currentSelectedRangeId),
               '拖动以调整高亮起点',
               `hsn-selection-handle hsn-selection-handle--start${isDraggingPersisted ? ' hsn-selection-handle--dragging' : ''}`,
               buildHandleStyle(first.x, first.y + first.height / 2),
@@ -857,10 +943,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             {renderSingleHandle(
               'end',
               'persisted-range',
-              selectedRangeId,
+              currentSelectedRangeId,
               { x: last.x + last.width, y: last.y + last.height / 2 },
               isDraggingPersisted,
-              startHandleDrag('end', selectedRangeId),
+              startHandleDrag('end', currentSelectedRangeId),
               '拖动以调整高亮终点',
               `hsn-selection-handle hsn-selection-handle--end${isDraggingPersisted ? ' hsn-selection-handle--dragging' : ''}`,
               buildHandleStyle(last.x + last.width, last.y + last.height / 2),

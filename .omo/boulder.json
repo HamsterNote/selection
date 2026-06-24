@@ -1,0 +1,115 @@
+{
+  "schema_version": 2,
+  "active_work_id": "multi-selection-linked-ranges-plan-f6702c49",
+  "works": {
+    "multi-selection-linked-ranges-plan-f6702c49": {
+      "work_id": "multi-selection-linked-ranges-plan-f6702c49",
+      "active_plan": "/home/zhangxiao/frontend/HamsterNote/selection/.omo/plans/multi-selection-linked-ranges-plan.md",
+      "plan_name": "multi-selection-linked-ranges-plan",
+      "status": "active",
+      "started_at": "2026-06-24T10:47:35.766Z",
+      "updated_at": "2026-06-24T11:23:37.248Z",
+      "session_ids": [
+        "opencode:ses_106c1ebdaffeX08uCWwiYbJHaV"
+      ],
+      "session_origins": {
+        "opencode:ses_106c1ebdaffeX08uCWwiYbJHaV": "direct"
+      },
+      "agent": "atlas",
+      "task_sessions": {
+        "todo:1": {
+          "task_key": "todo:1",
+          "task_label": "1",
+          "task_title": "Define linked public data model and compatible props",
+          "session_id": "opencode:ses_106c0d21fffeZcrBEtpZFvZyu8",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-06-24T11:00:19.218Z",
+          "started_at": "2026-06-24T10:59:38.310Z",
+          "status": "completed",
+          "ended_at": "2026-06-24T11:00:19.218Z",
+          "elapsed_ms": 40908
+        },
+        "todo:2": {
+          "task_key": "todo:2",
+          "task_label": "2",
+          "task_title": "Add percentage geometry conversion helpers and rect comparison rules",
+          "session_id": "opencode:ses_106b5bd97ffeabDJWYLVQN8uEO",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-06-24T11:11:33.195Z",
+          "started_at": "2026-06-24T11:11:07.741Z",
+          "status": "completed",
+          "ended_at": "2026-06-24T11:11:33.195Z",
+          "elapsed_ms": 25454
+        },
+        "todo:3": {
+          "task_key": "todo:3",
+          "task_label": "3",
+          "task_title": "Implement linked-mode Selection data filtering and rendering",
+          "session_id": "opencode:ses_106ab7436ffeAj5z6nSu76y540",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-06-24T11:23:37.248Z",
+          "started_at": "2026-06-24T11:22:40.813Z",
+          "status": "completed",
+          "ended_at": "2026-06-24T11:23:37.248Z",
+          "elapsed_ms": 56435
+        }
+      }
+    }
+  },
+  "active_plan": "/home/zhangxiao/frontend/HamsterNote/selection/.omo/plans/multi-selection-linked-ranges-plan.md",
+  "started_at": "2026-06-24T10:47:35.766Z",
+  "status": "active",
+  "updated_at": "2026-06-24T11:23:37.248Z",
+  "session_ids": [
+    "opencode:ses_106c1ebdaffeX08uCWwiYbJHaV"
+  ],
+  "session_origins": {
+    "opencode:ses_106c1ebdaffeX08uCWwiYbJHaV": "direct"
+  },
+  "plan_name": "multi-selection-linked-ranges-plan",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Define linked public data model and compatible props",
+      "session_id": "opencode:ses_106c0d21fffeZcrBEtpZFvZyu8",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-06-24T11:00:19.218Z",
+      "started_at": "2026-06-24T10:59:38.310Z",
+      "status": "completed",
+      "ended_at": "2026-06-24T11:00:19.218Z",
+      "elapsed_ms": 40908
+    },
+    "todo:2": {
+      "task_key": "todo:2",
+      "task_label": "2",
+      "task_title": "Add percentage geometry conversion helpers and rect comparison rules",
+      "session_id": "opencode:ses_106b5bd97ffeabDJWYLVQN8uEO",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-06-24T11:11:33.195Z",
+      "started_at": "2026-06-24T11:11:07.741Z",
+      "status": "completed",
+      "ended_at": "2026-06-24T11:11:33.195Z",
+      "elapsed_ms": 25454
+    },
+    "todo:3": {
+      "task_key": "todo:3",
+      "task_label": "3",
+      "task_title": "Implement linked-mode Selection data filtering and rendering",
+      "session_id": "opencode:ses_106ab7436ffeAj5z6nSu76y540",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-06-24T11:23:37.248Z",
+      "started_at": "2026-06-24T11:22:40.813Z",
+      "status": "completed",
+      "ended_at": "2026-06-24T11:23:37.248Z",
+      "elapsed_ms": 56435
+    }
+  },
+  "agent": "atlas"
+}
