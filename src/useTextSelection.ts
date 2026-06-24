@@ -117,6 +117,7 @@ function captureLinkedSelection(
   const documentEnd = backward ? start : end;
 
   const rectsBySelectionId: Record<string, PercentOverlayRect[]> = {};
+  let linkedText = '';
   let localRects: OverlayRect[] = [];
   let localStartIndex = -1;
   let localEndIndex = -1;
@@ -124,6 +125,7 @@ function captureLinkedSelection(
   for (const entry of getRegisteredContainers()) {
     const fragment = createContainerFragmentRange(range, entry.element);
     if (!fragment) continue;
+    const fragmentText = fragment.toString();
 
     const pixelRects = rangeToOverlayRects(fragment, entry.element);
     if (pixelRects.length === 0) continue;
@@ -142,6 +144,7 @@ function captureLinkedSelection(
 
     const percentRects = pixelRectsToPercentRects(pixelRects, entry.element);
     if (percentRects.length === 0) continue;
+    linkedText += fragmentText;
     rectsBySelectionId[entry.selectionId] = percentRects;
 
     if (entry.selectionId === localSelectionId) {
@@ -156,7 +159,7 @@ function captureLinkedSelection(
   return {
     item: {
       id: generateId(),
-      text: selection.toString(),
+      text: linkedText,
       start: documentStart,
       end: documentEnd,
       createdAt: Date.now(),
@@ -236,7 +239,7 @@ export function useTextSelection(
       }
 
       setState({
-        selectedText: text,
+        selectedText: linkedCapture.item.text,
         startIndex: linkedCapture.localStartIndex,
         endIndex: linkedCapture.localEndIndex,
         rects: linkedCapture.localRects,

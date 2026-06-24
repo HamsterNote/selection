@@ -1,4 +1,4 @@
-import type { ReactNode, CSSProperties, PointerEvent } from 'react';
+import type { CSSProperties, PointerEvent, ReactNode } from 'react';
 
 /**
  * 选区数据结构
@@ -16,6 +16,46 @@ export interface SelectionRange {
   /** 创建时间戳 */
   createdAt: number;
 }
+
+/**
+ * 联动选区端点。
+ * 使用 selectionId 指向具体文本区域，offset 表示该区域纯文本内的字符偏移量。
+ */
+export type SelectionEndpoint = { selectionId: string; offset: number };
+
+/**
+ * 联动模式下相对于文本区域的百分比矩形。
+ * x/y/width/height 均由调用方按百分比坐标保存，便于跨区域重算 Overlay。
+ */
+export type PercentOverlayRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * 联动模式下跨一个或多个文本区域的公开 range 数据结构。
+ * start/end 通过 SelectionEndpoint 指向不同 selectionId，rectsBySelectionId 保存每个区域的 Overlay 矩形。
+ */
+export type LinkedSelectionRange = {
+  id: string;
+  text: string;
+  start: SelectionEndpoint;
+  end: SelectionEndpoint;
+  createdAt: number;
+  rectsBySelectionId: Record<string, PercentOverlayRect[]>;
+};
+
+/**
+ * 联动模式的受控数据集合。
+ * items 保存所有联动 range，selectedRangeId 表示当前选中项，selectionOrder 表示文本区域顺序。
+ */
+export type LinkedSelectionData = {
+  items: LinkedSelectionRange[];
+  selectedRangeId: string | null;
+  selectionOrder: string[];
+};
 
 /**
  * 一个相对于容器左上角的矩形（绝对定位用）
@@ -164,6 +204,20 @@ export interface SelectionRef {
 export interface SelectionProps {
   /** 文本内容（任意 React 节点）。组件保证不会改写或包装。 */
   children: ReactNode;
+  /** 当前文本区域在联动模式中的唯一标识；不要使用 id 作为该 prop 名称。 */
+  selectionId?: string;
+  /** 是否启用跨多个文本区域的联动选区模式；不传或 false 时保持 legacy 行为。 */
+  linkedMode?: boolean;
+  /** 联动模式的受控数据；legacy 调用方可不传。 */
+  linkedData?: LinkedSelectionData;
+  /** 联动模式数据变化时触发，调用方应据此更新 linkedData。 */
+  onLinkedDataChange?: (next: LinkedSelectionData) => void;
+  /** 联动模式下确认/选择一个跨区域 range 时触发。 */
+  onLinkedSelect?: (range: LinkedSelectionRange) => void;
+  /** 联动模式下调整跨区域 range 后触发。 */
+  onLinkedUpdateRange?: (range: LinkedSelectionRange) => void;
+  /** 联动模式下选中/取消选中某个 range 时触发。 */
+  onLinkedSelectRange?: (id: string | null) => void;
   /** 当前已存在的选区列表（受控） */
   ranges: SelectionRange[];
   /**

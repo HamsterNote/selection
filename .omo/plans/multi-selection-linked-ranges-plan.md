@@ -136,7 +136,7 @@ Your next move: start work now, or run a high-accuracy review first. Full execut
   QA scenarios (name the exact tool + invocation): Happy: run Demo, create a cross-Selection highlight, click a rect in page B, verify rects in page A and B share selected state/data id, then delete and verify zero rects remain for that id; write notes to `.omo/evidence/task-6-multi-selection-linked-ranges-plan.md`. Failure: select a cross-Selection item and verify no handles appear for that item; record handle count and endpoint ownership notes.
   Commit: Y | feat(selection): support linked item interactions
 
-- [ ] 7. Refactor Demo to shared linked data across multiple Selection regions
+- [x] 7. Refactor Demo to shared linked data across multiple Selection regions
   What to do / Must NOT do: In `demo/src/App.tsx`, replace the single-region demo state with `overallData: LinkedSelectionData` whose top-level shape is exactly `{ items, selectedRangeId, selectionOrder }`. Render at least two labeled page/Selection panels with distinct `selectionId` values such as `page-a` and `page-b`, and pass `linkedMode={true}`, `linkedData={overallData}`, `onLinkedDataChange={setOverallData}`, and linked callbacks to each. Each Selection receives the same overall data and callbacks that add/update/delete one linked item. Keep existing controls for handle visibility, custom handle mode, marker colors, logs, and list controls adapted to linked items. Also keep a small legacy compatibility section or toggle that renders one Selection without `linkedMode`, `selectionId`, or linked data props and uses the old flat `ranges` state. Must NOT remove useful existing logs/list controls unless they are adapted to the unified data model.
   Parallelization: Wave 3 | Blocked by: 1, 2, 3, 4, 5, 6 | Blocks: 8, 9
   References (executor has NO interview context - be exhaustive): `demo/src/App.tsx:24`, `demo/src/App.tsx:54`, `demo/src/App.tsx:63`, `demo/src/App.tsx:68`, `demo/src/App.tsx:182`, `demo/src/App.tsx:333`, `demo/src/App.tsx:464`, `src/types.ts:164`
@@ -144,7 +144,7 @@ Your next move: start work now, or run a high-accuracy review first. Full execut
   QA scenarios (name the exact tool + invocation): Happy: `npm run build:demo 2>&1 | tee .omo/evidence/task-7-multi-selection-linked-ranges-plan.md`; then run Demo and create highlights in page A, page B, and across A→B, confirming the list count increments by one per highlight. Failure: verify a Selection with `selectionId="page-a"` does not render data that only belongs to `page-b`; append DOM notes.
   Commit: Y | feat(demo): show linked multi selection pages
 
-- [ ] 8. Add collapsed formatted overall JSON inspector at Demo bottom
+- [x] 8. Add collapsed formatted overall JSON inspector at Demo bottom
   What to do / Must NOT do: Add a bottom-of-page JSON data panel in `demo/src/App.tsx` using native `<details>` or equivalent, default collapsed. The expanded content must be formatted JSON via `JSON.stringify(overallData, null, 2)` and include `items`, `selectedRangeId`, `selectionOrder`, and for every item: `id`, `text`, `start.selectionId`, `start.offset`, `end.selectionId`, `end.offset`, `createdAt`, and `rectsBySelectionId`. Style it minimally and keep it below existing lists/logs. Must NOT truncate or minify the JSON by default.
   Parallelization: Wave 3 | Blocked by: 1, 7 | Blocks: 9
   References (executor has NO interview context - be exhaustive): `demo/src/App.tsx:464`, `demo/src/App.tsx:570`, `src/types.ts:7`, `src/types.ts:164`
@@ -152,7 +152,7 @@ Your next move: start work now, or run a high-accuracy review first. Full execut
   QA scenarios (name the exact tool + invocation): Happy: run Demo, verify `<details>` is closed by default, click/open it, and save copied JSON or DOM text evidence to `.omo/evidence/task-8-multi-selection-linked-ranges-plan.md`. Failure: after creating a cross-Selection highlight, verify JSON contains exactly one new item with both involved Selection ids, not two top-level items.
   Commit: Y | feat(demo): add overall data inspector
 
-- [ ] 9. Run compatibility, validation, and evidence pass
+- [x] 9. Run compatibility, validation, and evidence pass
   What to do / Must NOT do: First run `mkdir -p .omo/evidence`. Run the full existing validation set and perform browser QA for legacy/same-Selection and linked/cross-Selection paths. Fix only issues caused by this feature. Capture command outputs and QA notes under `.omo/evidence/`. If `npm run lint` fails for unrelated existing code, record exact file/line output and do not “fix” unrelated code. Must NOT declare done based only on typecheck if Demo behavior was not exercised.
   Parallelization: Wave 3 | Blocked by: 1, 2, 3, 4, 5, 6, 7, 8 | Blocks: final verification
   References (executor has NO interview context - be exhaustive): `package.json:40`, `src/Selection.tsx:170`, `src/useTextSelection.ts:84`, `demo/src/App.tsx:24`, `demo/src/App.tsx:333`, `.omo/drafts/multi-selection-linked-ranges-plan.md:1`
@@ -162,10 +162,10 @@ Your next move: start work now, or run a high-accuracy review first. Full execut
 
 ## Final verification wave
 > Runs in parallel after ALL todos. ALL must APPROVE. Surface results and wait for the user's explicit okay before declaring complete.
-- [ ] F1. Plan compliance audit: read `.omo/plans/multi-selection-linked-ranges-plan.md` and diff, verify every Must Have is implemented and every Must NOT is respected; evidence `.omo/evidence/f1-plan-compliance.md`.
-- [ ] F2. Code quality review: inspect `src/types.ts`, `src/Selection.tsx`, `src/useTextSelection.ts`, `src/index.ts`, and `demo/src/App.tsx` for excessive complexity, stale legacy paths, render loops, unsafe assumptions, and missing type exports; evidence `.omo/evidence/f2-code-quality.md`.
-- [ ] F3. Real manual QA: use the Demo in a browser to create same-page and cross-page highlights, inspect SVG data attributes, select/delete/update items, and expand JSON; evidence `.omo/evidence/f3-manual-qa.md`.
-- [ ] F4. Scope fidelity: verify no new dependencies/test frameworks/page framework/unrelated UI rewrite were introduced; evidence `.omo/evidence/f4-scope-fidelity.md`.
+- [x] F1. Plan compliance audit: read `.omo/plans/multi-selection-linked-ranges-plan.md` and diff, verify every Must Have is implemented and every Must NOT is respected; evidence `.omo/evidence/f1-plan-compliance.md`.
+- [x] F2. Code quality review: inspect `src/types.ts`, `src/Selection.tsx`, `src/useTextSelection.ts`, `src/index.ts`, and `demo/src/App.tsx` for excessive complexity, stale legacy paths, render loops, unsafe assumptions, and missing type exports; evidence `.omo/evidence/f2-code-quality.md`.
+- [x] F3. Real manual QA: use the Demo in a browser to create same-page and cross-page highlights, inspect SVG data attributes, select/delete/update items, and expand JSON; evidence `.omo/evidence/f3-manual-qa.md`.
+- [x] F4. Scope fidelity: verify no new dependencies/test frameworks/page framework/unrelated UI rewrite were introduced; evidence `.omo/evidence/f4-scope-fidelity.md`.
 
 ## Commit strategy
 - Use small atomic commits matching todo boundaries if the user asks the worker to commit. Do not commit automatically unless explicitly requested.
