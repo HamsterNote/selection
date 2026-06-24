@@ -184,7 +184,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     popover,
     selectionPopover,
     newSelectionOptions,
-    hideHandlesOnFirstSelection,
+    hideHandlesOnSelection,
     renderHandle,
     markerColors,
   },
@@ -224,15 +224,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   rangesRef.current = ranges;
   const onUpdateRangeRef = useRef(onUpdateRange);
   onUpdateRangeRef.current = onUpdateRange;
-
-  // 首次选区门控：当 hideHandlesOnFirstSelection 为 true 时，
-  // 组件挂载后的首次活跃选区不显示手柄。一旦用户确认（highlight）或选区消失，
-  // 此 ref 设为 true 便不再重置，后续选区恢复正常显示手柄。
-  const hasConfirmedOnceRef = useRef(false);
-
-  // 追踪上一次渲染时 hasSelection 的值，用于在 hasSelection 由 true→false 时
-  // 正确解锁门控（而非组件首次挂载时 hasSelection 本就为 false 的初始态）。
-  const hadSelectionRef = useRef(false);
 
   // 颜色优先级：markerColors > legacy props > CSS 默认
   // 活跃选区：newSelectionOptions.color > markerColors.selection.fill > selectionColor > CSS
@@ -328,8 +319,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const handleConfirm = useCallback(() => {
     if (!hasSelection || !selectedText) return;
 
-    hasConfirmedOnceRef.current = true;
-
     const range: SelectionRange = {
       id: generateId(),
       text: selectedText,
@@ -416,21 +405,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       onSelectRange?.(null);
     }
   }, [hasSelection, onSelectRange]);
-
-  // 首次选区门控解锁：当 hideHandlesOnFirstSelection 开启时，
-  // 首次活跃选区要全程隐藏手柄（含 mouseup 之后、选区尚未消失的窗口期）。
-  // 因此不能在 mouseup 时立即解锁——必须在「首次活跃选区真正消失」
-  // （hasSelection 由 true 转 false）后再解锁。
-  // handleConfirm 中的设值已正确（紧随 clear() 选区立即消失），
-  // 此 effect 覆盖「未高亮、直接点击空白取消选区」的路径，
-  // 且独立于 onSelectionEnd 回调，确保无回调时也能生效。
-  // hadSelectionRef 排除组件挂载初始态（hasSelection 初始即为 false）误触发解锁。
-  useEffect(() => {
-    if (hadSelectionRef.current && !hasSelection) {
-      hasConfirmedOnceRef.current = true;
-    }
-    hadSelectionRef.current = hasSelection;
-  }, [hasSelection]);
 
   // 容器点击：用于「点击高亮以选中」的命中测试。
   // 高亮 Overlay 在文字下方，这里读容器坐标并和持久 rect 做矩形包含检测。
@@ -825,9 +799,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         起点手柄钉在第一行矩形左侧中央，终点手柄钉在最后一行矩形右侧中央。
         拖动时通过 caretInfoFromPoint 反查 caret 偏移，更新原生选区；
         selectionchange → hook 重新计算 rects → 手柄位置基于新 rects 自然跟随。
-        当 hideHandlesOnFirstSelection 为 true 且用户尚未确认过任何选区时，隐藏活跃手柄。
+        当 hideHandlesOnSelection 为 true 时，隐藏活跃选区手柄（不影响高亮选中手柄）。
       */}
-      {hasSelection && rects.length > 0 && !(hideHandlesOnFirstSelection && !hasConfirmedOnceRef.current) && (() => {
+      {hasSelection && rects.length > 0 && !hideHandlesOnSelection && (() => {
         const first = rects[0];
         const last = rects[rects.length - 1];
         const isDraggingActive = !!(dragHandle && !dragPersistedId);

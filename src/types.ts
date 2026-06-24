@@ -253,17 +253,16 @@ export interface SelectionProps {
    */
   newSelectionOptions?: NewSelectionOptions;
   /**
-   * 在组件挂载后首次活跃文本选择期间隐藏拖拽手柄。
+   * 选中文本时隐藏活跃拖拽手柄。
    *
    * 仅影响活跃选区手柄（正在选中文本时的 start/end 圆圈），
-   * 不影响已确认高亮 range 被选中时的手柄——后者始终渲染。
+   * 不影响已确认高亮 range 被选中时的手柄——后者始终渲染，不受此开关影响。
    *
-   * 一旦首次选区被确认（highlight）、取消或完成，后续选区恢复正常显示手柄。
-   * 此状态不随 `clear()` 重置。
+   * 开启后，所有文本选区都不显示活跃手柄；高亮 range 的选中手柄照常显示。
    *
    * @default false
    */
-  hideHandlesOnFirstSelection?: boolean;
+  hideHandlesOnSelection?: boolean;
   /**
    * 自定义拖拽手柄渲染函数。
    *

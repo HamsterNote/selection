@@ -33,8 +33,8 @@ export default function App() {
   // ─────────────────────────────────────────────
   // 新功能演示控制面板状态
   // ─────────────────────────────────────────────
-  // Feature 1：首次选择文字时不显示 range 手柄
-  const [hideHandlesOnFirstSelection, setHideHandlesOnFirstSelection] =
+  // Feature 1：选中文本时不显示 range 手柄（不影响高亮选中手柄）
+  const [hideHandlesOnSelection, setHideHandlesOnSelection] =
     useState(false);
   // Feature 2：自定义手柄渲染（null = 使用内置圆形 button，'square' = 自定义方形手柄）
   const [customHandleMode, setCustomHandleMode] = useState<
@@ -222,12 +222,12 @@ export default function App() {
         >
           <input
             type="checkbox"
-            checked={hideHandlesOnFirstSelection}
-            onChange={(e) => setHideHandlesOnFirstSelection(e.target.checked)}
+            checked={hideHandlesOnSelection}
+            onChange={(e) => setHideHandlesOnSelection(e.target.checked)}
           />
           <span>
-            <strong>hideHandlesOnFirstSelection</strong>
-            <span style={{ color: '#888' }}> — 首次选中文本时不显示拖拽手柄</span>
+            <strong>hideHandlesOnSelection</strong>
+            <span style={{ color: '#888' }}> — 选中文本时不显示拖拽手柄（高亮选中手柄不受影响）</span>
           </span>
         </label>
 
@@ -340,8 +340,8 @@ export default function App() {
           onSelectionEnd={handleSelectionEnd}
           onHighlight={handleHighlight}
           onUpdateRange={handleUpdateRange}
-          // Feature 1：首次选择隐藏手柄
-          hideHandlesOnFirstSelection={hideHandlesOnFirstSelection}
+          // Feature 1：选中文本时隐藏手柄
+          hideHandlesOnSelection={hideHandlesOnSelection}
           // Feature 2：自定义手柄渲染函数
           renderHandle={renderHandle}
           // Feature 3：标记颜色配置（与 legacy newSelectionOptions 共存时 markerColors 优先）
