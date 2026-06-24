@@ -1,11 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { OverlayRect, UseTextSelectionResult } from './types';
+import { pixelRectsToPercentRects } from './geometry';
+import { getRegisteredContainers, resolveEndpoint } from './linkedRegistry';
+import type {
+  LinkedSelectionRange,
+  OverlayRect,
+  PercentOverlayRect,
+  UseTextSelectionResult,
+} from './types';
 
-/**
- * 获取选区相对于容器的字符偏移量
- * 浏览器 Selection API 返回的是 node + offset，
- * 需要换算成相对于容器的纯文本偏移量
- */
+type UseTextSelectionOptions = {
+  readonly linkedMode?: boolean;
+  readonly selectionId?: string | null;
+};
+
+type LinkedSelectionCapture = {
+  readonly item: LinkedSelectionRange;
+  readonly localRects: OverlayRect[];
+  readonly localStartIndex: number;
+  readonly localEndIndex: number;
+};
+
 function getRangeOffsets(
   container: HTMLElement,
   selection: Selection,
@@ -17,22 +31,143 @@ function getRangeOffsets(
     return null;
   }
 
-  // 通过 selectNodeContents + setEnd 计算从容器起点到选区起点的字符数
-  const preRange = document.createRange();
-  preRange.selectNodeContents(container);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  const start = preRange.toString().length;
-
-  preRange.setEnd(range.endContainer, range.endOffset);
-  const end = preRange.toString().length;
+  const start = getLocalOffset(container, range.startContainer, range.startOffset);
+  const end = getLocalOffset(container, range.endContainer, range.endOffset);
+  if (start === null || end === null) return null;
 
   return { start, end };
 }
 
-/**
- * 把一个原生 Range 的 ClientRects 换算为相对容器的 Overlay 矩形数组。
- * 多行选区会拆成多个矩形（每行一段）。
- */
+function getLocalOffset(container: HTMLElement, node: Node, offset: number): number | null {
+  if (!container.contains(node)) return null;
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  try {
+    range.setEnd(node, offset);
+  } catch (error) {
+    if (error instanceof Error) return null;
+    throw error;
+  }
+  return range.toString().length;
+}
+
+function generateId(): string {
+  return `hsn-sel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isSameDocumentLightDomEndpoint(node: Node): boolean {
+  const ownerDocument = node instanceof Document ? node : node.ownerDocument;
+  return ownerDocument === document && node.getRootNode() === document;
+}
+
+function isRangeBackward(range: Range): boolean {
+  const temp = document.createRange();
+  temp.setStart(range.startContainer, range.startOffset);
+  temp.setEnd(range.endContainer, range.endOffset);
+  return temp.collapsed && !range.collapsed;
+}
+
+function createContainerFragmentRange(range: Range, container: HTMLElement): Range | null {
+  if (!range.intersectsNode(container)) return null;
+
+  const containerRange = document.createRange();
+  containerRange.selectNodeContents(container);
+  const fragment = document.createRange();
+
+  try {
+    if (range.compareBoundaryPoints(Range.START_TO_START, containerRange) <= 0) {
+      fragment.setStart(containerRange.startContainer, containerRange.startOffset);
+    } else {
+      fragment.setStart(range.startContainer, range.startOffset);
+    }
+
+    if (range.compareBoundaryPoints(Range.END_TO_END, containerRange) >= 0) {
+      fragment.setEnd(containerRange.endContainer, containerRange.endOffset);
+    } else {
+      fragment.setEnd(range.endContainer, range.endOffset);
+    }
+  } catch (error) {
+    if (error instanceof Error) return null;
+    throw error;
+  }
+
+  if (fragment.collapsed || !fragment.toString().trim()) return null;
+  return fragment;
+}
+
+function captureLinkedSelection(
+  selection: Selection,
+  localSelectionId: string | null | undefined,
+): LinkedSelectionCapture | null {
+  const range = selection.getRangeAt(0);
+  if (!range) return null;
+
+  if (
+    !isSameDocumentLightDomEndpoint(range.startContainer) ||
+    !isSameDocumentLightDomEndpoint(range.endContainer)
+  ) {
+    return null;
+  }
+
+  const start = resolveEndpoint(range.startContainer, range.startOffset);
+  const end = resolveEndpoint(range.endContainer, range.endOffset);
+  if (!start || !end) return null;
+  const backward = isRangeBackward(range);
+  const documentStart = backward ? end : start;
+  const documentEnd = backward ? start : end;
+
+  const rectsBySelectionId: Record<string, PercentOverlayRect[]> = {};
+  let localRects: OverlayRect[] = [];
+  let localStartIndex = -1;
+  let localEndIndex = -1;
+
+  for (const entry of getRegisteredContainers()) {
+    const fragment = createContainerFragmentRange(range, entry.element);
+    if (!fragment) continue;
+
+    const pixelRects = rangeToOverlayRects(fragment, entry.element);
+    if (pixelRects.length === 0) continue;
+
+    const fragmentStart = getLocalOffset(
+      entry.element,
+      fragment.startContainer,
+      fragment.startOffset,
+    );
+    const fragmentEnd = getLocalOffset(
+      entry.element,
+      fragment.endContainer,
+      fragment.endOffset,
+    );
+    if (fragmentStart === null || fragmentEnd === null) continue;
+
+    const percentRects = pixelRectsToPercentRects(pixelRects, entry.element);
+    if (percentRects.length === 0) continue;
+    rectsBySelectionId[entry.selectionId] = percentRects;
+
+    if (entry.selectionId === localSelectionId) {
+      localRects = pixelRects;
+      localStartIndex = Math.min(fragmentStart, fragmentEnd);
+      localEndIndex = Math.max(fragmentStart, fragmentEnd);
+    }
+  }
+
+  if (Object.keys(rectsBySelectionId).length === 0) return null;
+
+  return {
+    item: {
+      id: generateId(),
+      text: selection.toString(),
+      start: documentStart,
+      end: documentEnd,
+      createdAt: Date.now(),
+      rectsBySelectionId,
+    },
+    localRects,
+    localStartIndex,
+    localEndIndex,
+  };
+}
+
 function rangeToOverlayRects(range: Range, container: HTMLElement): OverlayRect[] {
   const containerRect = container.getBoundingClientRect();
   const rects = range.getClientRects();
@@ -51,18 +186,13 @@ function rangeToOverlayRects(range: Range, container: HTMLElement): OverlayRect[
   return out;
 }
 
-/**
- * 内部选区状态。把所有派生数据（Overlay 矩形）一次性写入，
- * 这样可以避免在外层 useEffect 里再 setState 触发 react-hooks/set-state-in-effect。
- * 注意：曾经的 toolbar 字段已移除——高亮按钮不再由组件内部渲染，
- * 改由调用方在 Demo 层通过 ref.highlight() 控制。
- */
 interface InternalSelectionState {
   selectedText: string;
   startIndex: number;
   endIndex: number;
   /** 正在选择时的 Overlay 矩形（多行可能多个） */
   rects: OverlayRect[];
+  linkedRange: LinkedSelectionRange | null;
 }
 
 const EMPTY_STATE: InternalSelectionState = {
@@ -70,21 +200,15 @@ const EMPTY_STATE: InternalSelectionState = {
   startIndex: -1,
   endIndex: -1,
   rects: [],
+  linkedRange: null,
 };
 
-/**
- * 文本选区 Hook
- *
- * 监听 document.selectionchange，提取：
- * - 选中文本 + 字符偏移量（start/end）
- * - 选区的多行矩形（用于绘制 Overlay）
- *
- * 所有坐标均相对于 container 左上角。
- */
 export function useTextSelection(
   containerRef: React.RefObject<HTMLElement | null>,
+  options: UseTextSelectionOptions = {},
 ): UseTextSelectionResult & {
   rects: OverlayRect[];
+  linkedRange: LinkedSelectionRange | null;
 } {
   const [state, setState] = useState<InternalSelectionState>(EMPTY_STATE);
 
@@ -98,14 +222,31 @@ export function useTextSelection(
       return;
     }
 
-    const offsets = getRangeOffsets(container, selection);
-    if (!offsets) {
+    const text = selection.toString();
+    if (!text.trim()) {
       setState(EMPTY_STATE);
       return;
     }
 
-    const text = selection.toString();
-    if (!text.trim()) {
+    if (options.linkedMode) {
+      const linkedCapture = captureLinkedSelection(selection, options.selectionId);
+      if (!linkedCapture) {
+        setState(EMPTY_STATE);
+        return;
+      }
+
+      setState({
+        selectedText: text,
+        startIndex: linkedCapture.localStartIndex,
+        endIndex: linkedCapture.localEndIndex,
+        rects: linkedCapture.localRects,
+        linkedRange: linkedCapture.item,
+      });
+      return;
+    }
+
+    const offsets = getRangeOffsets(container, selection);
+    if (!offsets) {
       setState(EMPTY_STATE);
       return;
     }
@@ -118,8 +259,9 @@ export function useTextSelection(
       startIndex: Math.min(offsets.start, offsets.end),
       endIndex: Math.max(offsets.start, offsets.end),
       rects,
+      linkedRange: null,
     });
-  }, [containerRef]);
+  }, [containerRef, options.linkedMode, options.selectionId]);
 
   useEffect(() => {
     document.addEventListener('selectionchange', handleSelectionChange);
@@ -142,5 +284,6 @@ export function useTextSelection(
     hasSelection,
     clear,
     rects: hasSelection ? state.rects : [],
+    linkedRange: hasSelection ? state.linkedRange : null,
   };
 }

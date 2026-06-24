@@ -247,8 +247,16 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 选区（活跃，未高亮）Popover 的 DOM 引用；用于点击事件外排除
   const selectionPopoverRef = useRef<HTMLDivElement>(null);
 
-  const { selectedText, startIndex, endIndex, hasSelection, clear, rects } =
-    useTextSelection(containerRef);
+  const linkedContext = useMemo(
+    () => getLinkedModeContext(linkedMode, selectionId, linkedData),
+    [linkedMode, selectionId, linkedData],
+  );
+  const linkedSelectionId = linkedContext?.selectionId ?? null;
+  const { selectedText, startIndex, endIndex, hasSelection, clear, rects, linkedRange } =
+    useTextSelection(containerRef, {
+      linkedMode: !!linkedContext,
+      selectionId: linkedSelectionId,
+    });
 
   // 拖拽手柄状态：'start' 代表调整选区起点，'end' 代表调整终点
   const [dragHandle, setDragHandle] = useState<'start' | 'end' | null>(null);
@@ -274,11 +282,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   rangesRef.current = ranges;
   const onUpdateRangeRef = useRef(onUpdateRange);
   onUpdateRangeRef.current = onUpdateRange;
-  const linkedContext = useMemo(
-    () => getLinkedModeContext(linkedMode, selectionId, linkedData),
-    [linkedMode, selectionId, linkedData],
-  );
-  const linkedSelectionId = linkedContext?.selectionId ?? null;
   const linkedDataRef = useRef(linkedData);
   linkedDataRef.current = linkedData;
   const onLinkedDataChangeRef = useRef(onLinkedDataChange);
@@ -288,7 +291,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     : selectedRangeId;
   const selectRange = linkedContext ? onLinkedSelectRange : onSelectRange;
 
-  void onLinkedSelect;
   void onLinkedUpdateRange;
 
   const getLinkedSelectionOrder = useCallback(
@@ -446,6 +448,40 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const handleConfirm = useCallback(() => {
     if (!hasSelection || !selectedText) return;
 
+    if (linkedContext) {
+      if (!linkedRange) {
+        clear();
+        return;
+      }
+
+      const nextData: LinkedSelectionData = {
+        ...linkedContext.data,
+        items: [...linkedContext.data.items, linkedRange],
+        selectedRangeId: linkedRange.id,
+      };
+      onLinkedDataChange?.(nextData);
+      onLinkedSelect?.(linkedRange);
+      onLinkedSelectRange?.(linkedRange.id);
+
+      if (
+        linkedRange.start.selectionId === linkedSelectionId &&
+        linkedRange.end.selectionId === linkedSelectionId
+      ) {
+        const localRange: SelectionRange = {
+          id: linkedRange.id,
+          text: linkedRange.text,
+          start: linkedRange.start.offset,
+          end: linkedRange.end.offset,
+          createdAt: linkedRange.createdAt,
+        };
+        onSelect?.(localRange);
+        onHighlight?.(localRange);
+      }
+
+      clear();
+      return;
+    }
+
     const range: SelectionRange = {
       id: generateId(),
       text: selectedText,
@@ -458,7 +494,22 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     onHighlight?.(range);
     selectRange?.(range.id);
     clear();
-  }, [hasSelection, selectedText, startIndex, endIndex, onSelect, onHighlight, selectRange, clear]);
+  }, [
+    hasSelection,
+    selectedText,
+    linkedContext,
+    linkedRange,
+    linkedSelectionId,
+    onLinkedDataChange,
+    onLinkedSelect,
+    onLinkedSelectRange,
+    clear,
+    startIndex,
+    endIndex,
+    onSelect,
+    onHighlight,
+    selectRange,
+  ]);
 
   // 用 useImperativeHandle 暴露命令式 API。
   // 设计上仅暴露 highlight/clear 两个动作，不暴露内部状态——
