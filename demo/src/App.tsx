@@ -1,6 +1,8 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Selection } from '@hamster-note/selection';
 import type {
+  HandleRenderProps,
+  MarkerColors,
   MousePosition,
   SelectionRange,
   SelectionRef,
@@ -28,6 +30,21 @@ export default function App() {
   // 日志自增 id，避免 React key 冲突
   const logIdRef = useRef(0);
 
+  // ─────────────────────────────────────────────
+  // 新功能演示控制面板状态
+  // ─────────────────────────────────────────────
+  // Feature 1：首次选择文字时不显示 range 手柄
+  const [hideHandlesOnFirstSelection, setHideHandlesOnFirstSelection] =
+    useState(false);
+  // Feature 2：自定义手柄渲染（null = 使用内置圆形 button，'square' = 自定义方形手柄）
+  const [customHandleMode, setCustomHandleMode] = useState<
+    'default' | 'square' | 'hidden'
+  >('default');
+  // Feature 3：标记颜色预设方案
+  const [colorPreset, setColorPreset] = useState<
+    'default' | 'blue' | 'green' | 'purple'
+  >('default');
+
   const appendLog = useCallback((kind: LogKind, detail: string) => {
     logIdRef.current += 1;
     const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -41,6 +58,11 @@ export default function App() {
   // 选中/取消选中的回调（受控）
   const handleSelectRange = useCallback((id: string | null) => {
     setSelectedRangeId(id);
+  }, []);
+
+  // 高亮 range 手柄拖动后更新对应条目的 start/end/text
+  const handleUpdateRange = useCallback((updated: SelectionRange) => {
+    setRanges((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
   }, []);
 
   // 删除当前选中的 range
@@ -88,6 +110,75 @@ export default function App() {
     e.preventDefault();
   }, []);
 
+  // ─────────────────────────────────────────────
+  // Feature 2：自定义手柄渲染函数
+  // 当 customHandleMode = 'square' 时返回一个方形手柄
+  // 当 customHandleMode = 'hidden' 时返回 null（隐藏手柄）
+  // 当 customHandleMode = 'default' 时不传 renderHandle（使用内置圆形 button）
+  // ─────────────────────────────────────────────
+  const renderHandle = useMemo(() => {
+    if (customHandleMode === 'default') return undefined;
+    // 返回一个渲染函数，库会在每次需要手柄时调用它
+    return (props: HandleRenderProps) => {
+      if (customHandleMode === 'hidden') return null;
+      // 自定义方形手柄：演示外部组件可完全控制外观
+      // 关键：必须调用 props.onPointerDown 才能启用库内置拖拽逻辑
+      return (
+        <button
+          type="button"
+          aria-label={props.ariaLabel}
+          className={props.className}
+          onPointerDown={props.onPointerDown}
+          style={{
+            ...props.style, // 继承库计算的绝对定位 + 颜色
+            // 覆盖为方形外观（演示自定义形态）
+            borderRadius: 2,
+            width: 12,
+            height: 12,
+            border: `2px solid ${props.style.borderColor ?? '#fff'}`,
+            background: props.style.background ?? '#ff4fa3',
+            cursor: 'grab',
+            // 拖拽中放大，给用户视觉反馈
+            transform: props.isDragging ? 'scale(1.3)' : 'scale(1)',
+            transition: 'transform 0.1s ease',
+          }}
+        />
+      );
+    };
+  }, [customHandleMode]);
+
+  // ─────────────────────────────────────────────
+  // Feature 3：标记颜色预设方案
+  // 通过 markerColors 同时配置填充和边框，演示 selection + highlight + selectedHighlight + handle
+  // ─────────────────────────────────────────────
+  const markerColors = useMemo<MarkerColors | undefined>(() => {
+    switch (colorPreset) {
+      case 'blue':
+        return {
+          selection: { fill: 'rgba(64,156,255,0.35)' },
+          highlight: { fill: 'rgba(64,156,255,0.25)', stroke: { color: 'rgba(64,156,255,0.6)', width: 1 } },
+          selectedHighlight: { fill: 'rgba(64,156,255,0.4)', stroke: { color: '#1c7ed6', width: 2 } },
+          handle: { fill: '#1c7ed6', stroke: { color: '#fff', width: 2 } },
+        };
+      case 'green':
+        return {
+          selection: { fill: 'rgba(64,192,87,0.35)' },
+          highlight: { fill: 'rgba(64,192,87,0.25)', stroke: { color: 'rgba(64,192,87,0.6)', width: 1 } },
+          selectedHighlight: { fill: 'rgba(64,192,87,0.4)', stroke: { color: '#2f9e44', width: 2 } },
+          handle: { fill: '#2f9e44', stroke: { color: '#fff', width: 2 } },
+        };
+      case 'purple':
+        return {
+          selection: { fill: 'rgba(156,81,255,0.35)' },
+          highlight: { fill: 'rgba(156,81,255,0.25)', stroke: { color: 'rgba(156,81,255,0.6)', width: 1 } },
+          selectedHighlight: { fill: 'rgba(156,81,255,0.4)', stroke: { color: '#7048e8', width: 2 } },
+          handle: { fill: '#7048e8', stroke: { color: '#fff', width: 2 } },
+        };
+      default:
+        return undefined; // 使用 CSS 默认
+    }
+  }, [colorPreset]);
+
   return (
     <div
       style={{
@@ -101,7 +192,91 @@ export default function App() {
       <h1 style={{ fontSize: 28, marginBottom: 8 }}>@hamster-note/selection</h1>
       <p style={{ color: '#666', marginBottom: 16 }}>
         选中下方文本后，点击「高亮选中」按钮添加标记。点击已有高亮可选中/取消选中，选中后可删除。
+        选中文字或高亮的首尾会出现圆圈，拖动可调整范围（支持从尾部拖到首部之前实现反向选区）。
       </p>
+
+      {/* ─────────── 新功能演示控制面板 ─────────── */}
+      <div
+        style={{
+          marginBottom: 16,
+          padding: 16,
+          background: '#f8f9fa',
+          borderRadius: 8,
+          border: '1px solid #dee2e6',
+        }}
+      >
+        <h3 style={{ fontSize: 14, margin: '0 0 12px', color: '#495057' }}>
+          新功能演示控制
+        </h3>
+
+        {/* Feature 1：首次选择隐藏手柄 */}
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 8,
+            fontSize: 13,
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={hideHandlesOnFirstSelection}
+            onChange={(e) => setHideHandlesOnFirstSelection(e.target.checked)}
+          />
+          <span>
+            <strong>hideHandlesOnFirstSelection</strong>
+            <span style={{ color: '#888' }}> — 首次选中文本时不显示拖拽手柄</span>
+          </span>
+        </label>
+
+        {/* Feature 2：手柄渲染模式 */}
+        <div style={{ marginBottom: 8 }}>
+          <span style={{ fontSize: 13, marginRight: 8 }}>
+            <strong>renderHandle</strong>
+            <span style={{ color: '#888' }}> — 手柄渲染模式：</span>
+          </span>
+          {(['default', 'square', 'hidden'] as const).map((mode) => (
+            <label
+              key={mode}
+              style={{ marginRight: 12, fontSize: 13, cursor: 'pointer' }}
+            >
+              <input
+                type="radio"
+                name="handle-mode"
+                checked={customHandleMode === mode}
+                onChange={() => setCustomHandleMode(mode)}
+                style={{ marginRight: 4 }}
+              />
+              {mode === 'default' ? '内置圆形' : mode === 'square' ? '自定义方形' : '隐藏(null)'}
+            </label>
+          ))}
+        </div>
+
+        {/* Feature 3：颜色预设 */}
+        <div>
+          <span style={{ fontSize: 13, marginRight: 8 }}>
+            <strong>markerColors</strong>
+            <span style={{ color: '#888' }}> — 颜色预设：</span>
+          </span>
+          {(['default', 'blue', 'green', 'purple'] as const).map((preset) => (
+            <label
+              key={preset}
+              style={{ marginRight: 12, fontSize: 13, cursor: 'pointer' }}
+            >
+              <input
+                type="radio"
+                name="color-preset"
+                checked={colorPreset === preset}
+                onChange={() => setColorPreset(preset)}
+                style={{ marginRight: 4 }}
+              />
+              {preset === 'default' ? '默认(黄/粉)' : preset}
+            </label>
+          ))}
+        </div>
+      </div>
 
       {/* 工具条：高亮 / 清除 / 删除选中，均通过 ref 或受控状态操作组件 */}
       <div
@@ -164,6 +339,13 @@ export default function App() {
           onSelectionStart={handleSelectionStart}
           onSelectionEnd={handleSelectionEnd}
           onHighlight={handleHighlight}
+          onUpdateRange={handleUpdateRange}
+          // Feature 1：首次选择隐藏手柄
+          hideHandlesOnFirstSelection={hideHandlesOnFirstSelection}
+          // Feature 2：自定义手柄渲染函数
+          renderHandle={renderHandle}
+          // Feature 3：标记颜色配置（与 legacy newSelectionOptions 共存时 markerColors 优先）
+          markerColors={markerColors}
           popover={
             <button
               type="button"

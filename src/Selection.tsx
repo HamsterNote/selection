@@ -8,7 +8,11 @@ import {
   useState,
 } from 'react';
 import type {
+  HandlePosition,
+  HandleRenderProps,
   OverlayRect,
+  SelectionHandleOwner,
+  SelectionHandleType,
   SelectionProps,
   SelectionRange,
   SelectionRef,
@@ -30,7 +34,12 @@ function createRangeFromOffsets(
   start: number,
   end: number,
 ): Range | null {
-  if (start < 0 || end < start) return null;
+  if (start < 0 || end < 0) return null;
+  // 支持反向传入（start > end）：自动交换以构造正向 Range。
+  // 拖拽手柄允许两边界自由越过彼此，这里统一兜底方向。
+  const lo = Math.min(start, end);
+  const hi = Math.max(start, end);
+  if (hi <= lo) return null;
 
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   let charCount = 0;
@@ -168,12 +177,16 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     onSelectionStart,
     onSelectionEnd,
     onHighlight,
+    onUpdateRange,
     highlightColor,
     selectionColor,
     className,
     popover,
     selectionPopover,
     newSelectionOptions,
+    hideHandlesOnFirstSelection,
+    renderHandle,
+    markerColors,
   },
   ref,
 ): React.ReactElement {
@@ -190,15 +203,80 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 拖拽手柄状态：'start' 代表调整选区起点，'end' 代表调整终点
   const [dragHandle, setDragHandle] = useState<'start' | 'end' | null>(null);
   const dragHandleRef = useRef<'start' | 'end' | null>(null);
-  // 缓存最新的 startIndex/endIndex，避免 pointermove 监听器随它们频繁重注册
+  // 当前拖动的是哪个高亮 range（null 表示拖动的是活跃选区，而非高亮 range）。
+  const [dragPersistedId, setDragPersistedId] = useState<string | null>(null);
+  const dragPersistedIdRef = useRef<string | null>(null);
+  // 拖动期间的「锚点」：不动的那个边界的纯文本偏移。
+  // 拖 start 时锚点=end，拖 end 时锚点=start。缓存以避免 selectionchange 同步更新 ref 导致锚点漂移。
+  const dragAnchorRef = useRef<number>(-1);
+  // 被拖动手柄的 DOM 引用：拖动开始时设为手柄元素，用于 onUp 恢复 pointerEvents。
+  // 避免依赖 React state → CSS class 链（重渲染延迟导致首帧 pointermove 命中手柄）。
+  const dragHandleElRef = useRef<HTMLElement | null>(null);
+  // 拖动结束后设为 true，阻止紧随其后的合成 click 事件误触「点击高亮选中」的 toggle 逻辑。
+  // pointerup → click 顺序由浏览器保证；在 handleContainerClick 中消费一次即清除。
+  const skipClickRef = useRef(false);
   const startIndexRef = useRef(startIndex);
   const endIndexRef = useRef(endIndex);
   startIndexRef.current = startIndex;
   endIndexRef.current = endIndex;
+  // 桥接 ref：让 pointermove 监听器读取最新 ranges / onUpdateRange 而不触发重注册。
+  const rangesRef = useRef(ranges);
+  rangesRef.current = ranges;
+  const onUpdateRangeRef = useRef(onUpdateRange);
+  onUpdateRangeRef.current = onUpdateRange;
 
-  // 活跃选区颜色：newSelectionOptions.color 优先，回退到旧的 selectionColor，最终回退到 CSS 默认
-  const activeSelectionColor =
-    newSelectionOptions?.color ?? selectionColor;
+  // 首次选区门控：当 hideHandlesOnFirstSelection 为 true 时，
+  // 组件挂载后的首次活跃选区不显示手柄。一旦用户确认（highlight）或选区消失，
+  // 此 ref 设为 true 便不再重置，后续选区恢复正常显示手柄。
+  const hasConfirmedOnceRef = useRef(false);
+
+  // 追踪上一次渲染时 hasSelection 的值，用于在 hasSelection 由 true→false 时
+  // 正确解锁门控（而非组件首次挂载时 hasSelection 本就为 false 的初始态）。
+  const hadSelectionRef = useRef(false);
+
+  // 颜色优先级：markerColors > legacy props > CSS 默认
+  // 活跃选区：newSelectionOptions.color > markerColors.selection.fill > selectionColor > CSS
+  const activeSelectionFill =
+    newSelectionOptions?.color
+    ?? markerColors?.selection?.fill
+    ?? selectionColor;
+
+  // 未选中高亮：markerColors.highlight.fill > highlightColor > CSS
+  const unselectedHighlightFill =
+    markerColors?.highlight?.fill
+    ?? highlightColor;
+
+  // 选中高亮
+  const selectedHighlightFill = markerColors?.selectedHighlight?.fill;
+  const selectedHighlightStroke =
+    typeof markerColors?.selectedHighlight?.stroke === 'string'
+      ? markerColors.selectedHighlight.stroke
+      : markerColors?.selectedHighlight?.stroke?.color;
+  const selectedHighlightStrokeWidth =
+    typeof markerColors?.selectedHighlight?.stroke === 'object'
+      ? markerColors.selectedHighlight.stroke.width
+      : undefined;
+
+  // 未选中高亮描边
+  const unselectedHighlightStroke =
+    typeof markerColors?.highlight?.stroke === 'string'
+      ? markerColors.highlight.stroke
+      : markerColors?.highlight?.stroke?.color;
+  const unselectedHighlightStrokeWidth =
+    typeof markerColors?.highlight?.stroke === 'object'
+      ? markerColors.highlight.stroke.width
+      : undefined;
+
+  // 手柄颜色
+  const handleFill = markerColors?.handle?.fill;
+  const handleStroke =
+    typeof markerColors?.handle?.stroke === 'string'
+      ? markerColors.handle.stroke
+      : markerColors?.handle?.stroke?.color;
+  const handleStrokeWidth =
+    typeof markerColors?.handle?.stroke === 'object'
+      ? markerColors.handle.stroke.width
+      : undefined;
 
   /** 每个已确认 range 对应的 Overlay 矩形组 */
   const [persistedRects, setPersistedRects] = useState<
@@ -250,6 +328,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const handleConfirm = useCallback(() => {
     if (!hasSelection || !selectedText) return;
 
+    hasConfirmedOnceRef.current = true;
+
     const range: SelectionRange = {
       id: generateId(),
       text: selectedText,
@@ -292,14 +372,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
 
     const handleMouseUp = (e: MouseEvent) => {
-      if (!onSelectionEnd) return;
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
       // 校验选区是否仍位于容器内（防止跨容器拖动尾点导致误触发）
       const range = selection.getRangeAt(0);
       if (!container.contains(range.commonAncestorContainer)) return;
       if (!selection.toString().trim()) return;
-      onSelectionEnd({ x: e.clientX, y: e.clientY }, selection);
+      onSelectionEnd?.({ x: e.clientX, y: e.clientY }, selection);
     };
 
     container.addEventListener('mousedown', handleMouseDown);
@@ -312,6 +391,24 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
   }, [onSelectionStart, onSelectionEnd]);
 
+  // 触摸设备长按文字触发的原生 contextmenu（系统选区菜单/复制弹窗）需屏蔽。
+  // 仅在 pointerType === 'touch' 时 preventDefault，桌面右键菜单不受影响。
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleContextMenu = (e: MouseEvent) => {
+      // contextmenu 的 TS 类型是 MouseEvent，但触摸触发时浏览器实际派发的是 PointerEvent 子类，
+      // 其上携带 pointerType。用 in 守卫做类型窄化，避免 as any。
+      if ('pointerType' in e && (e as PointerEvent).pointerType === 'touch') {
+        e.preventDefault();
+      }
+    };
+    container.addEventListener('contextmenu', handleContextMenu);
+    return () => {
+      container.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, []);
+
   // 当用户开始拖选新文本时（hasSelection 变为 true），自动取消当前选中的高亮 range。
   // 这实现了「当前新选择而又没高亮的选区」与「已选中的高亮 range」互斥的需求。
   useEffect(() => {
@@ -320,6 +417,21 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     }
   }, [hasSelection, onSelectRange]);
 
+  // 首次选区门控解锁：当 hideHandlesOnFirstSelection 开启时，
+  // 首次活跃选区要全程隐藏手柄（含 mouseup 之后、选区尚未消失的窗口期）。
+  // 因此不能在 mouseup 时立即解锁——必须在「首次活跃选区真正消失」
+  // （hasSelection 由 true 转 false）后再解锁。
+  // handleConfirm 中的设值已正确（紧随 clear() 选区立即消失），
+  // 此 effect 覆盖「未高亮、直接点击空白取消选区」的路径，
+  // 且独立于 onSelectionEnd 回调，确保无回调时也能生效。
+  // hadSelectionRef 排除组件挂载初始态（hasSelection 初始即为 false）误触发解锁。
+  useEffect(() => {
+    if (hadSelectionRef.current && !hasSelection) {
+      hasConfirmedOnceRef.current = true;
+    }
+    hadSelectionRef.current = hasSelection;
+  }, [hasSelection]);
+
   // 容器点击：用于「点击高亮以选中」的命中测试。
   // 高亮 Overlay 在文字下方，这里读容器坐标并和持久 rect 做矩形包含检测。
   // 如果当前是「拖选完成」的 click（getSelection 仍有文本），则不触发选中。
@@ -327,6 +439,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const handleContainerClick = useCallback(
     (e: MouseEvent) => {
       if (!onSelectRange) return;
+      // 拖拽手柄结束后浏览器合成 click 事件，此处消费 skip 标记并跳过命中测试，
+      // 避免拖拽后误触发 toggle 清空 selectedRangeId。
+      if (skipClickRef.current) {
+        skipClickRef.current = false;
+        return;
+      }
       const native = window.getSelection();
       if (native && !native.isCollapsed && native.toString().trim()) return;
 
@@ -393,14 +511,32 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
    * 手柄 pointerdown：进入拖动模式。
    * preventDefault 阻止浏览器开始新的原生文本选区；
    * stopPropagation 阻止冒泡到容器，避免误触发「点击高亮选中」逻辑。
+   * 第二参数 rangeId 可选：传入则表示拖动的是已选中高亮 range 的手柄（修改其 start/end）；
+   * 不传则拖动的是活跃选区手柄（修改原生 selection）。
    */
   const startHandleDrag = useCallback(
-    (which: 'start' | 'end') => (e: React.PointerEvent<HTMLButtonElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dragHandleRef.current = which;
-      setDragHandle(which);
-    },
+    (which: 'start' | 'end', rangeId?: string) =>
+      (e: React.PointerEvent<HTMLElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // 立即设内联 pointer-events: none，不依赖 React 重渲染 → CSS class 链。
+        // 首帧 pointermove 在 React commit 前就可能触发，若手柄仍 intercept 事件，
+        // caretRangeFromPoint 会命中手柄而非文字，导致选区跳变/闪烁。
+        e.currentTarget.style.pointerEvents = 'none';
+        dragHandleElRef.current = e.currentTarget;
+        dragHandleRef.current = which;
+        dragPersistedIdRef.current = rangeId ?? null;
+        // 缓存拖动锚点：不动的那个边界。拖 start 锚点=end，拖 end 锚点=start。
+        // 活跃选区从 ref 读取当前 endIndex/startIndex；高亮 range 从 ranges 读取当前 range 的 end/start。
+        if (rangeId) {
+          const r = rangesRef.current.find((x) => x.id === rangeId);
+          dragAnchorRef.current = r ? (which === 'start' ? r.end : r.start) : -1;
+        } else {
+          dragAnchorRef.current = which === 'start' ? endIndexRef.current : startIndexRef.current;
+        }
+        setDragHandle(which);
+        setDragPersistedId(rangeId ?? null);
+      },
     [],
   );
 
@@ -410,10 +546,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
    * 在 pointermove 中：
    *   1) 通过 caretInfoFromPoint 在鼠标处反查 caret 的 (node, offset)；
    *   2) 用 preRange 累计字符长度，换算为容器纯文本偏移；
-   *   3) 根据手柄类型只修改 start 或 end（保留方向：start < end）；
-   *   4) 构造新 Range，setSelection 触发 selectionchange → hook 更新 rects → 手柄位置自然跟随。
+   *   3) 以拖动开始时缓存的 anchor（不动边界）为锚点，newOffset 为移动边界，
+   *      用 Math.min/max 生成正端 lo/hi，允许越过锚点实现反向选区；
+   *   4) 活跃选区：构造 DOM Range + setSelection 触发 selectionchange → hook 更新 rects；
+   *      高亮 range：构造 updated SelectionRange + onUpdateRange 上报，并同步原生 selection 以更新 persisted rects。
    * 监听器依赖 [dragHandle]：拖动开始时挂载，结束时卸载，期间不会随 startIndex/endIndex 变化重注册
-   * （使用 startIndexRef/endIndexRef 桥接最新值）。
+   * （使用 rangesRef / dragAnchorRef 桥接最新值，避免 selectionchange 同步更新 ref 导致锚点漂移）。
    */
   useEffect(() => {
     if (!dragHandle) return;
@@ -435,31 +573,60 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       }
       const newOffset = preRange.toString().length;
 
-      const curStart = startIndexRef.current;
-      const curEnd = endIndexRef.current;
-      let nextStart = curStart;
-      let nextEnd = curEnd;
-      if (which === 'start') {
-        // 不允许 start 越过 end：保留方向（至少留 1 个字符）
-        nextStart = Math.min(newOffset, curEnd - 1);
-      } else {
-        nextEnd = Math.max(newOffset, curStart + 1);
-      }
-      if (nextStart === curStart && nextEnd === curEnd) return;
+      const persistedId = dragPersistedIdRef.current;
+      if (persistedId) {
+        const cur = rangesRef.current.find((r) => r.id === persistedId);
+        if (!cur) return;
+        const anchor = dragAnchorRef.current;
+        if (anchor < 0) return;
+        // 锚点固定为拖动开始时的不动边界，移动边界跟随鼠标，允许越过实现反向。
+        const lo = Math.min(anchor, newOffset);
+        const hi = Math.max(anchor, newOffset);
+        if (hi - lo < 1) return;
+        if (lo === cur.start && hi === cur.end) return;
 
-      const newRange = createRangeFromOffsets(container, nextStart, nextEnd);
+        const domRange = createRangeFromOffsets(container, lo, hi);
+        if (!domRange) return;
+        const updated: SelectionRange = {
+          ...cur,
+          start: lo,
+          end: hi,
+          text: domRange.toString(),
+        };
+        // 仅上报更新；不设原生选区。
+        // persistedRects 由 ranges prop 变化驱动重算（useLayoutEffect），无需 selectionchange。
+        // 若设原生选区会触发 hasSelection=true → onSelectRange(null) 副作用，
+        // 清空 selectedRangeId 导致高亮样式与 Popover 消失。
+        onUpdateRangeRef.current?.(updated);
+        return;
+      }
+
+      const anchor = dragAnchorRef.current;
+      if (anchor < 0) return;
+      // 锚点是拖动开始时缓存的不动边界，移动边界跟随鼠标。允许越过锚点实现反向选区。
+      const lo = Math.min(anchor, newOffset);
+      const hi = Math.max(anchor, newOffset);
+      if (hi - lo < 1) return;
+
+      const newRange = createRangeFromOffsets(container, lo, hi);
       if (!newRange) return;
 
       const sel = window.getSelection();
       if (!sel) return;
       sel.removeAllRanges();
       sel.addRange(newRange);
-      // selectionchange 同步触发 useTextSelection hook 重新计算 rects，
-      // 组件重渲染 → 手柄位置基于新 rects 自然更新。
     };
     const onUp = () => {
+      if (dragHandleElRef.current) {
+        dragHandleElRef.current.style.pointerEvents = '';
+        dragHandleElRef.current = null;
+      }
+      skipClickRef.current = true;
       dragHandleRef.current = null;
+      dragPersistedIdRef.current = null;
+      dragAnchorRef.current = -1;
       setDragHandle(null);
+      setDragPersistedId(null);
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
@@ -493,6 +660,60 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     return { x: top.x + top.width / 2, y: top.y };
   })();
 
+  // 构建手柄的内联样式：绝对定位 + markerColors.handle 颜色覆盖。
+  // 当外部传入 renderHandle 时，这个 style 通过 HandleRenderProps.style 传给外部组件，
+  // 外部组件应合并到根元素以获得定位和默认颜色。
+  const buildHandleStyle = (left: number, top: number): React.CSSProperties => {
+    const s: React.CSSProperties = { left, top };
+    if (handleFill) s.background = handleFill;
+    if (handleStroke) {
+      s.borderColor = handleStroke;
+      s.borderWidth = handleStrokeWidth ? `${handleStrokeWidth}px` : '2px';
+      s.borderStyle = 'solid';
+    }
+    return s;
+  };
+
+  // 渲染单个手柄：renderHandle 优先，返回 null 则隐藏（不留 fallback），否则用默认 <button>。
+  const renderSingleHandle = (
+    type: SelectionHandleType,
+    owner: SelectionHandleOwner,
+    rangeId: string | null,
+    position: HandlePosition,
+    isDragging: boolean,
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => void,
+    ariaLabel: string,
+    className: string,
+    style: React.CSSProperties,
+  ) => {
+    const handleProps: HandleRenderProps = {
+      type,
+      owner,
+      rangeId,
+      position,
+      isDragging,
+      onPointerDown,
+      ariaLabel,
+      className,
+      style,
+    };
+    if (renderHandle) {
+      const rendered = renderHandle(handleProps);
+      if (rendered === null) return null;
+      return rendered;
+    }
+    return (
+      <button
+        type="button"
+        className={className}
+        tabIndex={-1}
+        aria-label={ariaLabel}
+        style={style}
+        onPointerDown={onPointerDown}
+      />
+    );
+  };
+
   return (
     <div
       ref={containerRef}
@@ -514,23 +735,39 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         preserveAspectRatio="none"
       >
         {persistedRects.map(({ id, rects: rs }) =>
-          rs.map((r) => (
-            <rect
-              key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
-              className={`hsn-selection-rect ${
-                id === selectedRangeId
-                  ? 'hsn-selection-rect--selected'
-                  : 'hsn-selection-rect--highlight'
-              }`}
-              x={r.x}
-              y={r.y}
-              width={r.width}
-              height={r.height}
-              rx={2}
-              ry={2}
-              {...(highlightColor && id !== selectedRangeId ? { fill: highlightColor } : null)}
-            />
-          )),
+          rs.map((r) => {
+            const isSelected = id === selectedRangeId;
+            // 选中高亮：markerColors.selectedHighlight > CSS 默认（无 legacy shorthand）
+            // 未选中高亮：markerColors.highlight > highlightColor > CSS 默认
+            const fill = isSelected
+              ? selectedHighlightFill
+              : unselectedHighlightFill;
+            const stroke = isSelected
+              ? selectedHighlightStroke
+              : unselectedHighlightStroke;
+            const strokeWidth = isSelected
+              ? selectedHighlightStrokeWidth
+              : unselectedHighlightStrokeWidth;
+            return (
+              <rect
+                key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
+                className={`hsn-selection-rect ${
+                  isSelected
+                    ? 'hsn-selection-rect--selected'
+                    : 'hsn-selection-rect--highlight'
+                }`}
+                x={r.x}
+                y={r.y}
+                width={r.width}
+                height={r.height}
+                rx={2}
+                ry={2}
+                {...(fill ? { fill } : null)}
+                {...(stroke ? { stroke } : null)}
+                {...(strokeWidth ? { strokeWidth } : null)}
+              />
+            );
+          }),
         )}
 
         {hasSelection &&
@@ -544,7 +781,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
               height={r.height}
               rx={2}
               ry={2}
-              {...(activeSelectionColor ? { fill: activeSelectionColor } : null)}
+              {...(activeSelectionFill ? { fill: activeSelectionFill } : null)}
             />
           ))}
       </svg>
@@ -588,33 +825,75 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         起点手柄钉在第一行矩形左侧中央，终点手柄钉在最后一行矩形右侧中央。
         拖动时通过 caretInfoFromPoint 反查 caret 偏移，更新原生选区；
         selectionchange → hook 重新计算 rects → 手柄位置基于新 rects 自然跟随。
+        当 hideHandlesOnFirstSelection 为 true 且用户尚未确认过任何选区时，隐藏活跃手柄。
       */}
-      {hasSelection && rects.length > 0 && (
-        <>
-          <button
-            type="button"
-            className={`hsn-selection-handle hsn-selection-handle--start${dragHandle ? ' hsn-selection-handle--dragging' : ''}`}
-            tabIndex={-1}
-            aria-label="拖动以调整选区起点"
-            style={{
-              left: rects[0].x,
-              top: rects[0].y + rects[0].height / 2,
-            }}
-            onPointerDown={startHandleDrag('start')}
-          />
-          <button
-            type="button"
-            className={`hsn-selection-handle hsn-selection-handle--end${dragHandle ? ' hsn-selection-handle--dragging' : ''}`}
-            tabIndex={-1}
-            aria-label="拖动以调整选区终点"
-            style={{
-              left: rects[rects.length - 1].x + rects[rects.length - 1].width,
-              top: rects[rects.length - 1].y + rects[rects.length - 1].height / 2,
-            }}
-            onPointerDown={startHandleDrag('end')}
-          />
-        </>
-      )}
+      {hasSelection && rects.length > 0 && !(hideHandlesOnFirstSelection && !hasConfirmedOnceRef.current) && (() => {
+        const first = rects[0];
+        const last = rects[rects.length - 1];
+        const isDraggingActive = !!(dragHandle && !dragPersistedId);
+        return (
+          <>
+            {renderSingleHandle(
+              'start',
+              'active-selection',
+              null,
+              { x: first.x, y: first.y + first.height / 2 },
+              isDraggingActive,
+              startHandleDrag('start'),
+              '拖动以调整选区起点',
+              `hsn-selection-handle hsn-selection-handle--start${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
+              buildHandleStyle(first.x, first.y + first.height / 2),
+            )}
+            {renderSingleHandle(
+              'end',
+              'active-selection',
+              null,
+              { x: last.x + last.width, y: last.y + last.height / 2 },
+              isDraggingActive,
+              startHandleDrag('end'),
+              '拖动以调整选区终点',
+              `hsn-selection-handle hsn-selection-handle--end${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
+              buildHandleStyle(last.x + last.width, last.y + last.height / 2),
+            )}
+          </>
+        );
+      })()}
+
+      {/* 已选中高亮 range 的首尾手柄：与活跃选区手柄互斥。 */}
+      {!hasSelection && selectedRangeId && (() => {
+        const entry = persistedRects.find((p) => p.id === selectedRangeId);
+        if (!entry || entry.rects.length === 0) return null;
+        const rs = entry.rects;
+        const first = rs[0];
+        const last = rs[rs.length - 1];
+        const isDraggingPersisted = !!(dragHandle && dragPersistedId === selectedRangeId);
+        return (
+          <>
+            {renderSingleHandle(
+              'start',
+              'persisted-range',
+              selectedRangeId,
+              { x: first.x, y: first.y + first.height / 2 },
+              isDraggingPersisted,
+              startHandleDrag('start', selectedRangeId),
+              '拖动以调整高亮起点',
+              `hsn-selection-handle hsn-selection-handle--start${isDraggingPersisted ? ' hsn-selection-handle--dragging' : ''}`,
+              buildHandleStyle(first.x, first.y + first.height / 2),
+            )}
+            {renderSingleHandle(
+              'end',
+              'persisted-range',
+              selectedRangeId,
+              { x: last.x + last.width, y: last.y + last.height / 2 },
+              isDraggingPersisted,
+              startHandleDrag('end', selectedRangeId),
+              '拖动以调整高亮终点',
+              `hsn-selection-handle hsn-selection-handle--end${isDraggingPersisted ? ' hsn-selection-handle--dragging' : ''}`,
+              buildHandleStyle(last.x + last.width, last.y + last.height / 2),
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 });

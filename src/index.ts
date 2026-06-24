@@ -19,4 +19,13 @@ export type {
   MousePosition,
   // 新绘制选区（活跃、未高亮）的选项集合（颜色等）
   NewSelectionOptions,
+  // 手柄渲染相关类型
+  SelectionHandleType,
+  SelectionHandleOwner,
+  HandlePosition,
+  HandleRenderProps,
+  // 标记颜色配置类型
+  MarkerStrokeStyle,
+  MarkerColorStyle,
+  MarkerColors,
 } from './types';

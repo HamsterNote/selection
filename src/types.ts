@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, CSSProperties, PointerEvent } from 'react';
 
 /**
  * 选区数据结构
@@ -43,8 +43,100 @@ export interface MousePosition {
  * 后续可在该对象上继续扩展更多字段（笔触、边框、动画等）。
  */
 export interface NewSelectionOptions {
-  /** 活跃选区的 Overlay 颜色（覆盖默认半透明粉）；不传则使用 selectionColor 或 CSS 默认 */
+  /** 活跃选区的 Overlay 颜色（覆盖默认半透明粉）；不传则使用 markerColors.selection.fill 或 selectionColor 或 CSS 默认 */
   color?: string;
+}
+
+// ---------------------------------------------------------------------------
+// 拖拽手柄（Range Handle）外部可定制类型
+// ---------------------------------------------------------------------------
+
+/** 手柄类型：start 代表选区起点，end 代表选区终点 */
+export type SelectionHandleType = 'start' | 'end';
+
+/** 手柄所属对象：active-selection 为活跃选区，persisted-range 为已确认的高亮 range */
+export type SelectionHandleOwner = 'active-selection' | 'persisted-range';
+
+/** 手柄在容器坐标系中的位置（像素，相对容器左上角） */
+export interface HandlePosition {
+  x: number;
+  y: number;
+}
+
+/**
+ * 传给外部自定义手柄渲染函数的 props。
+ *
+ * 外部组件应：
+ * 1. 将 `position` 应用到根元素的绝对定位（或使用推荐的 `style`）；
+ * 2. 在自身的 `onPointerDown` 中调用 `props.onPointerDown`，以启用库内置拖拽逻辑；
+ * 3. 可选地使用 `className` / `style` / `ariaLabel` 以兼容默认样式表。
+ */
+export interface HandleRenderProps {
+  /** 是起点还是终点手柄 */
+  type: SelectionHandleType;
+  /** 手柄属于活跃选区还是已确认高亮 range */
+  owner: SelectionHandleOwner;
+  /** 当 owner 为 persisted-range 时对应的 range id；active-selection 时为 null */
+  rangeId: string | null;
+  /** 手柄在容器坐标系中的位置 */
+  position: HandlePosition;
+  /** 当前手柄是否正在被拖拽 */
+  isDragging: boolean;
+  /**
+   * 库内置的拖拽启动回调。
+   * 外部组件必须在其根元素的 onPointerDown 中调用此函数，
+   * 否则手柄拖拽将无法工作。
+   */
+  onPointerDown: (event: PointerEvent<HTMLElement>) => void;
+  /** 推荐的无障碍标签 */
+  ariaLabel: string;
+  /** 推荐的 className（兼容默认样式表）；完全自定义时可忽略 */
+  className: string;
+  /** 推荐的内联样式（含绝对定位 + 可选默认颜色）；外部组件应合并到根元素 */
+  style: CSSProperties;
+}
+
+// ---------------------------------------------------------------------------
+// 标记颜色（Marker Colors）配置类型
+// ---------------------------------------------------------------------------
+
+/** 边框/描边样式（可选颜色 + 可选宽度） */
+export interface MarkerStrokeStyle {
+  /** 边框颜色（SVG stroke 或 CSS border-color） */
+  color?: string;
+  /** 边框宽度（px），不传则沿用默认 */
+  width?: number;
+}
+
+/** 单个标记的颜色样式（填充 + 可选边框） */
+export interface MarkerColorStyle {
+  /** 填充颜色（SVG fill 或 CSS background-color） */
+  fill?: string;
+  /** 边框；可传字符串（仅颜色）或对象（颜色 + 宽度） */
+  stroke?: string | MarkerStrokeStyle;
+}
+
+/**
+ * 标记颜色配置。
+ *
+ * - `selection`：活跃选区（正在选中、尚未高亮）的颜色
+ * - `highlight`：已确认高亮 range 的颜色（未选中态）
+ * - `selectedHighlight`：被选中的高亮 range 的颜色（含边框）
+ * - `handle`：拖拽手柄的颜色（fill→背景, stroke→边框）
+ *
+ * 所有字段可选；不传的字段回退到 CSS 默认值。
+ * 与 legacy props（highlightColor / selectionColor / newSelectionOptions.color）共存时，
+ * 新 API 优先级高于 legacy props。
+ */
+export interface MarkerColors {
+  /** 活跃选区（正在选中、尚未高亮）的颜色 */
+  selection?: MarkerColorStyle;
+  /** 已确认高亮 range（未选中态）的颜色 */
+  highlight?: MarkerColorStyle;
+  /** 被选中的高亮 range 的颜色（对应 selectedRangeId） */
+  selectedHighlight?: MarkerColorStyle;
+  /** 拖拽手柄的颜色；fill 映射到 CSS background，stroke 映射到 CSS border */
+  handle?: MarkerColorStyle;
 }
 
 /**
@@ -110,9 +202,25 @@ export interface SelectionProps {
    * 后者用于专门测试或扩展高亮叙事；当前实现与 onSelect 同步触发，onHighlight 在 onSelect 之后。
    */
   onHighlight?: (range: SelectionRange) => void;
-  /** 已确认的高亮颜色（持久 Range 的 Overlay 颜色），默认半透明黄 */
+  /**
+   * 钩子：用户拖动已选中高亮 range 的首尾手柄以调整范围结束时触发。
+   * 传入更新后的 range（id 不变，start/end/text 可能变化）。
+   * 调用方应据此更新其受控 ranges 列表中对应条目的字段。
+   */
+  onUpdateRange?: (range: SelectionRange) => void;
+  /**
+   * 已确认的高亮颜色（持久 Range 的 Overlay 颜色），默认半透明黄。
+   *
+   * Legacy：优先使用 `markerColors.highlight.fill`。
+   * 同时传入两者时 `markerColors` 优先。
+   */
   highlightColor?: string;
-  /** 正在选择时的临时 Overlay 颜色，默认半透明粉 */
+  /**
+   * 正在选择时的临时 Overlay 颜色，默认半透明粉。
+   *
+   * Legacy：优先使用 `markerColors.selection.fill` 或 `newSelectionOptions.color`。
+   * 同时传入两者时 `markerColors` / `newSelectionOptions` 优先。
+   */
   selectionColor?: string;
   /** 自定义类名 */
   className?: string;
@@ -144,6 +252,33 @@ export interface SelectionProps {
    * 目前支持 `color`，未来可在该对象上扩展更多属性。
    */
   newSelectionOptions?: NewSelectionOptions;
+  /**
+   * 在组件挂载后首次活跃文本选择期间隐藏拖拽手柄。
+   *
+   * 仅影响活跃选区手柄（正在选中文本时的 start/end 圆圈），
+   * 不影响已确认高亮 range 被选中时的手柄——后者始终渲染。
+   *
+   * 一旦首次选区被确认（highlight）、取消或完成，后续选区恢复正常显示手柄。
+   * 此状态不随 `clear()` 重置。
+   *
+   * @default false
+   */
+  hideHandlesOnFirstSelection?: boolean;
+  /**
+   * 自定义拖拽手柄渲染函数。
+   *
+   * 返回的 React 节点应在其 `onPointerDown` 中调用 `props.onPointerDown`
+   * 以启用库内置拖拽逻辑。返回 `null` 表示隐藏该手柄。
+   * 不传时使用内置圆形 `<button>` 手柄。
+   */
+  renderHandle?: (props: HandleRenderProps) => ReactNode;
+  /**
+   * 标记颜色配置（活跃选区、高亮、选中高亮、手柄）。
+   *
+   * 各字段可选；不传的字段回退到 CSS 默认。
+   * 与 legacy 颜色 props 共存时，`markerColors` 优先。
+   */
+  markerColors?: MarkerColors;
 }
 
 /**
