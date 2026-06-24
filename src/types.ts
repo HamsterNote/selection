@@ -39,6 +39,15 @@ export interface MousePosition {
 }
 
 /**
+ * 新绘制选区（正在选中、尚未高亮的活跃选区）的选项集合。
+ * 后续可在该对象上继续扩展更多字段（笔触、边框、动画等）。
+ */
+export interface NewSelectionOptions {
+  /** 活跃选区的 Overlay 颜色（覆盖默认半透明粉）；不传则使用 selectionColor 或 CSS 默认 */
+  color?: string;
+}
+
+/**
  * 命令式 API：通过 ref 暴露给外部的能力
  * 让 Demo 可以在自己渲染的按钮中触发组件内部的高亮逻辑
  */
@@ -118,6 +127,23 @@ export interface SelectionProps {
    * - 点击 Popover 内部不会触发「点击外部取消选中」逻辑。
    */
   popover?: ReactNode;
+  /**
+   * 当用户正在选中文本（活跃选区、尚未高亮）时显示的 Popover 内容。
+   * 由外部传入任意 React 节点（例如「高亮」按钮）。
+   * 与 `popover` 互斥：活跃选区和已选中高亮不同时存在。
+   *
+   * 行为：
+   * - 仅当存在活跃选区（hasSelection 为真，且未选中已高亮 range）时显示；
+   * - 位置：活跃选区第一行（最顶行）矩形正上方，水平居中；
+   * - 调用方在传入的按钮上建议 `onMouseDown={e => e.preventDefault()}`
+   *   防止点击导致原生选区被浏览器清空（与组件外部按钮相同）。
+   */
+  selectionPopover?: ReactNode;
+  /**
+   * 新绘制选区（活跃选区、尚未高亮）的选项集合。
+   * 目前支持 `color`，未来可在该对象上扩展更多属性。
+   */
+  newSelectionOptions?: NewSelectionOptions;
 }
 
 /**

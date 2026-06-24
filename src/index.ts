@@ -17,4 +17,6 @@ export type {
   SelectionRef,
   // 鼠标位置（viewport 坐标），用于 onSelectionStart/onSelectionEnd 钩子
   MousePosition,
+  // 新绘制选区（活跃、未高亮）的选项集合（颜色等）
+  NewSelectionOptions,
 } from './types';

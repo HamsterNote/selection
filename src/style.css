@@ -106,3 +106,31 @@
     background: rgba(255, 255, 255, 0.15);
   }
 }
+
+/**
+ * 选区首尾拖拽手柄：绝对定位的粉色圆形。
+ * 用 <button> 渲染以获得语义化标签，但重置所有原生 button 样式。
+ * left/top 由内联 style 提供（容器坐标系），transform 把元素中心对齐到该坐标。
+ * touch-action: none 让 pointer 事件不被触摸滚动劫持。
+ */
+.hsn-selection-handle {
+  position: absolute;
+  z-index: 4;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  margin: 0;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #ff4fa3;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: ew-resize;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+  transform: translate(-50%, -50%);
+
+  &:focus {
+    outline: none;
+  }
+}

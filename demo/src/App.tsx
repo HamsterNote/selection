@@ -130,22 +130,6 @@ export default function App() {
         </button>
         <button
           type="button"
-          onClick={() => selectionRef.current?.clear()}
-          onMouseDown={handleHighlightMouseDown}
-          style={{
-            padding: '6px 14px',
-            background: '#fff',
-            color: '#1a1a1a',
-            border: '1px solid #d4d4d4',
-            borderRadius: 6,
-            cursor: 'pointer',
-            fontSize: 13,
-          }}
-        >
-          清除选区
-        </button>
-        <button
-          type="button"
           onClick={handleDeleteSelected}
           onMouseDown={handleHighlightMouseDown}
           disabled={!selectedRangeId}
@@ -198,6 +182,28 @@ export default function App() {
               删除
             </button>
           }
+          selectionPopover={
+            <button
+              type="button"
+              onClick={handleHighlightClick}
+              onMouseDown={handleHighlightMouseDown}
+              style={{
+                padding: '4px 10px',
+                background: '#1a1a1a',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: 12,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+              }}
+            >
+              高亮
+            </button>
+          }
+          newSelectionOptions={{
+            color: 'rgba(244,114,182,0.45)',
+          }}
         >
           {/*
             混合内容：纯文本 + 多种相对定位 inline 元素。

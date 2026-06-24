@@ -69,6 +69,31 @@ function createRangeFromOffsets(
   }
 }
 
+/**
+ * 在视口坐标 (clientX, clientY) 处获取 caret (文本节点 + 偏移)。
+ * 用于拖拽手柄时根据鼠标位置反查新的选区边界。
+ * 兼容 WebKit 的 caretRangeFromPoint 与 Firefox 的 caretPositionFromPoint。
+ */
+function caretInfoFromPoint(
+  x: number,
+  y: number,
+): { node: Node; offset: number } | null {
+  const doc = document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  if (typeof doc.caretRangeFromPoint === 'function') {
+    const r = doc.caretRangeFromPoint(x, y);
+    if (r && r.startContainer) return { node: r.startContainer, offset: r.startOffset };
+    return null;
+  }
+  if (typeof document.caretPositionFromPoint === 'function') {
+    const p = document.caretPositionFromPoint(x, y);
+    if (p) return { node: p.offsetNode, offset: p.offset };
+    return null;
+  }
+  return null;
+}
+
 /** 把 Range 的 ClientRects 换算为相对容器的 Overlay 矩形数组（多行可能多个） */
 function rangeToOverlayRects(range: Range, container: HTMLElement): OverlayRect[] {
   const containerRect = container.getBoundingClientRect();
@@ -147,6 +172,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     selectionColor,
     className,
     popover,
+    selectionPopover,
+    newSelectionOptions,
   },
   ref,
 ): React.ReactElement {
@@ -154,9 +181,24 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const contentRef = useRef<HTMLDivElement>(null);
   // Popover DOM 引用，用于「点击文档其它位置取消选中」时排除 popover 内部点击
   const popoverRef = useRef<HTMLDivElement>(null);
+  // 选区（活跃，未高亮）Popover 的 DOM 引用；用于点击事件外排除
+  const selectionPopoverRef = useRef<HTMLDivElement>(null);
 
   const { selectedText, startIndex, endIndex, hasSelection, clear, rects } =
     useTextSelection(containerRef);
+
+  // 拖拽手柄状态：'start' 代表调整选区起点，'end' 代表调整终点
+  const [dragHandle, setDragHandle] = useState<'start' | 'end' | null>(null);
+  const dragHandleRef = useRef<'start' | 'end' | null>(null);
+  // 缓存最新的 startIndex/endIndex，避免 pointermove 监听器随它们频繁重注册
+  const startIndexRef = useRef(startIndex);
+  const endIndexRef = useRef(endIndex);
+  startIndexRef.current = startIndex;
+  endIndexRef.current = endIndex;
+
+  // 活跃选区颜色：newSelectionOptions.color 优先，回退到旧的 selectionColor，最终回退到 CSS 默认
+  const activeSelectionColor =
+    newSelectionOptions?.color ?? selectionColor;
 
   /** 每个已确认 range 对应的 Overlay 矩形组 */
   const [persistedRects, setPersistedRects] = useState<
@@ -336,6 +378,86 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
   }, [selectedRangeId, onSelectRange]);
 
+  /**
+   * 手柄 pointerdown：进入拖动模式。
+   * preventDefault 阻止浏览器开始新的原生文本选区；
+   * stopPropagation 阻止冒泡到容器，避免误触发「点击高亮选中」逻辑。
+   */
+  const startHandleDrag = useCallback(
+    (which: 'start' | 'end') => (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragHandleRef.current = which;
+      setDragHandle(which);
+    },
+    [],
+  );
+
+  /**
+   * 拖动进行中 / 结束的全局 pointer 监听。
+   * 仅在 dragHandle 非 null（拖动激活）时挂载，拖动结束自动解除。
+   * 在 pointermove 中：
+   *   1) 通过 caretInfoFromPoint 在鼠标处反查 caret 的 (node, offset)；
+   *   2) 用 preRange 累计字符长度，换算为容器纯文本偏移；
+   *   3) 根据手柄类型只修改 start 或 end（保留方向：start < end）；
+   *   4) 构造新 Range，setSelection 触发 selectionchange → hook 更新 rects → 手柄位置自然跟随。
+   * 监听器依赖 [dragHandle]：拖动开始时挂载，结束时卸载，期间不会随 startIndex/endIndex 变化重注册
+   * （使用 startIndexRef/endIndexRef 桥接最新值）。
+   */
+  useEffect(() => {
+    if (!dragHandle) return;
+    const onMove = (e: PointerEvent) => {
+      const which = dragHandleRef.current;
+      if (!which) return;
+      const container = containerRef.current;
+      if (!container) return;
+
+      const info = caretInfoFromPoint(e.clientX, e.clientY);
+      if (!info || !container.contains(info.node)) return;
+
+      const preRange = document.createRange();
+      preRange.selectNodeContents(container);
+      try {
+        preRange.setEnd(info.node, info.offset);
+      } catch {
+        return;
+      }
+      const newOffset = preRange.toString().length;
+
+      const curStart = startIndexRef.current;
+      const curEnd = endIndexRef.current;
+      let nextStart = curStart;
+      let nextEnd = curEnd;
+      if (which === 'start') {
+        // 不允许 start 越过 end：保留方向（至少留 1 个字符）
+        nextStart = Math.min(newOffset, curEnd - 1);
+      } else {
+        nextEnd = Math.max(newOffset, curStart + 1);
+      }
+      if (nextStart === curStart && nextEnd === curEnd) return;
+
+      const newRange = createRangeFromOffsets(container, nextStart, nextEnd);
+      if (!newRange) return;
+
+      const sel = window.getSelection();
+      if (!sel) return;
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+      // selectionchange 同步触发 useTextSelection hook 重新计算 rects，
+      // 组件重渲染 → 手柄位置基于新 rects 自然更新。
+    };
+    const onUp = () => {
+      dragHandleRef.current = null;
+      setDragHandle(null);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+  }, [dragHandle]);
+
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
   // 没有选中、或选中的 id 在 persistedRects 中找不到时为 null（不渲染 Popover）。
   const popoverAnchor = (() => {
@@ -344,6 +466,17 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     if (!entry || entry.rects.length === 0) return null;
     let top = entry.rects[0];
     for (const r of entry.rects) {
+      if (r.y < top.y) top = r;
+    }
+    return { x: top.x + top.width / 2, y: top.y };
+  })();
+
+  // 计算「选区 Popover」锚点：活跃选区（未高亮）最顶部矩形的水平中点 + 顶边。
+  // 与 popoverAnchor 互斥（活跃选区时 selectedRangeId 必为 null）。
+  const selectionPopoverAnchor = (() => {
+    if (!hasSelection || !selectionPopover || rects.length === 0) return null;
+    let top = rects[0];
+    for (const r of rects) {
       if (r.y < top.y) top = r;
     }
     return { x: top.x + top.width / 2, y: top.y };
@@ -400,7 +533,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
               height={r.height}
               rx={2}
               ry={2}
-              {...(selectionColor ? { fill: selectionColor } : null)}
+              {...(activeSelectionColor ? { fill: activeSelectionColor } : null)}
             />
           ))}
       </svg>
@@ -423,6 +556,53 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         >
           {popover}
         </div>
+      )}
+
+      {/*
+        选区（活跃，未高亮）Popover：与上面的 popover 互斥。
+        容器 mousedown 阻止默认行为，避免点击内部按钮导致原生选区被浏览器清空。
+      */}
+      {selectionPopoverAnchor && (
+        <div
+          ref={selectionPopoverRef}
+          className="hsn-selection-popover"
+          style={{ left: selectionPopoverAnchor.x, top: selectionPopoverAnchor.y }}
+        >
+          {selectionPopover}
+        </div>
+      )}
+
+      {/*
+        拖拽手柄：活跃选区的首尾各一个粉色圆形。
+        起点手柄钉在第一行矩形左侧中央，终点手柄钉在最后一行矩形右侧中央。
+        拖动时通过 caretInfoFromPoint 反查 caret 偏移，更新原生选区；
+        selectionchange → hook 重新计算 rects → 手柄位置基于新 rects 自然跟随。
+      */}
+      {hasSelection && rects.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="hsn-selection-handle hsn-selection-handle--start"
+            tabIndex={-1}
+            aria-label="拖动以调整选区起点"
+            style={{
+              left: rects[0].x,
+              top: rects[0].y + rects[0].height / 2,
+            }}
+            onPointerDown={startHandleDrag('start')}
+          />
+          <button
+            type="button"
+            className="hsn-selection-handle hsn-selection-handle--end"
+            tabIndex={-1}
+            aria-label="拖动以调整选区终点"
+            style={{
+              left: rects[rects.length - 1].x + rects[rects.length - 1].width,
+              top: rects[rects.length - 1].y + rects[rects.length - 1].height / 2,
+            }}
+            onPointerDown={startHandleDrag('end')}
+          />
+        </>
       )}
     </div>
   );
