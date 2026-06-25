@@ -95,6 +95,35 @@ function createContainerFragmentRange(range: Range, container: HTMLElement): Ran
   return fragment;
 }
 
+function createTextFragmentRange(range: Range, textNode: Text): Range | null {
+  if (!range.intersectsNode(textNode)) return null;
+
+  const textRange = document.createRange();
+  textRange.selectNodeContents(textNode);
+
+  let startOffset = 0;
+  let endOffset = textNode.length;
+
+  if (range.compareBoundaryPoints(Range.START_TO_START, textRange) > 0) {
+    if (range.startContainer !== textNode) return null;
+    startOffset = range.startOffset;
+  }
+
+  if (range.compareBoundaryPoints(Range.END_TO_END, textRange) < 0) {
+    if (range.endContainer !== textNode) return null;
+    endOffset = range.endOffset;
+  }
+
+  if (endOffset <= startOffset) return null;
+
+  const fragment = document.createRange();
+  fragment.setStart(textNode, startOffset);
+  fragment.setEnd(textNode, endOffset);
+
+  if (fragment.collapsed || !fragment.toString()) return null;
+  return fragment;
+}
+
 function captureLinkedSelection(
   selection: Selection,
   localSelectionId: string | null | undefined,
@@ -173,18 +202,31 @@ function captureLinkedSelection(
 
 function rangeToOverlayRects(range: Range, container: HTMLElement): OverlayRect[] {
   const containerRect = container.getBoundingClientRect();
-  const rects = range.getClientRects();
   const out: OverlayRect[] = [];
-  for (let i = 0; i < rects.length; i += 1) {
-    const r = rects[i];
-    // 跳过零尺寸的杂项矩形（行末空 inline 框等）
-    if (r.width <= 0 || r.height <= 0) continue;
-    out.push({
-      x: r.left - containerRect.left,
-      y: r.top - containerRect.top,
-      width: r.width,
-      height: r.height,
-    });
+
+  // Range#getClientRects() 在跨块级元素选择时会返回块容器自身的矩形。
+  // 这里按文本节点切片后取 rect，只绘制真正选中文字的行盒，避免把大块父容器画成选区。
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    if (node instanceof Text) {
+      const textFragment = createTextFragmentRange(range, node);
+      if (textFragment) {
+        const rects = textFragment.getClientRects();
+        for (let i = 0; i < rects.length; i += 1) {
+          const r = rects[i];
+          // 跳过零尺寸的杂项矩形（行末空 inline 框等）
+          if (r.width <= 0 || r.height <= 0) continue;
+          out.push({
+            x: r.left - containerRect.left,
+            y: r.top - containerRect.top,
+            width: r.width,
+            height: r.height,
+          });
+        }
+      }
+    }
+    node = walker.nextNode();
   }
   return out;
 }

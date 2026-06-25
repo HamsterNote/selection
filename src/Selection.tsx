@@ -124,19 +124,61 @@ function caretInfoFromPoint(
 }
 
 /** 把 Range 的 ClientRects 换算为相对容器的 Overlay 矩形数组（多行可能多个） */
+function createTextFragmentRange(range: Range, textNode: Text): Range | null {
+  if (!range.intersectsNode(textNode)) return null;
+
+  const textRange = document.createRange();
+  textRange.selectNodeContents(textNode);
+
+  let startOffset = 0;
+  let endOffset = textNode.length;
+
+  if (range.compareBoundaryPoints(Range.START_TO_START, textRange) > 0) {
+    if (range.startContainer !== textNode) return null;
+    startOffset = range.startOffset;
+  }
+
+  if (range.compareBoundaryPoints(Range.END_TO_END, textRange) < 0) {
+    if (range.endContainer !== textNode) return null;
+    endOffset = range.endOffset;
+  }
+
+  if (endOffset <= startOffset) return null;
+
+  const fragment = document.createRange();
+  fragment.setStart(textNode, startOffset);
+  fragment.setEnd(textNode, endOffset);
+
+  if (fragment.collapsed || !fragment.toString()) return null;
+  return fragment;
+}
+
 function rangeToOverlayRects(range: Range, container: HTMLElement): OverlayRect[] {
   const containerRect = container.getBoundingClientRect();
-  const rects = range.getClientRects();
   const out: OverlayRect[] = [];
-  for (let i = 0; i < rects.length; i += 1) {
-    const r = rects[i];
-    if (r.width <= 0 || r.height <= 0) continue;
-    out.push({
-      x: r.left - containerRect.left,
-      y: r.top - containerRect.top,
-      width: r.width,
-      height: r.height,
-    });
+
+  // 原生 Range#getClientRects() 在跨块选择时可能包含块级父容器 rect。
+  // 按文本节点切片后再取 rect，可以只绘制实际被选中的文字行盒。
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    if (node instanceof Text) {
+      const textFragment = createTextFragmentRange(range, node);
+      if (textFragment) {
+        const rects = textFragment.getClientRects();
+        for (let i = 0; i < rects.length; i += 1) {
+          const r = rects[i];
+          if (r.width <= 0 || r.height <= 0) continue;
+          out.push({
+            x: r.left - containerRect.left,
+            y: r.top - containerRect.top,
+            width: r.width,
+            height: r.height,
+          });
+        }
+      }
+    }
+    node = walker.nextNode();
   }
   return out;
 }
@@ -296,6 +338,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     ? linkedContext.data.selectedRangeId
     : selectedRangeId;
   const selectRange = linkedContext ? onLinkedSelectRange : onSelectRange;
+  const [selectionPopoverReady, setSelectionPopoverReady] = useState(false);
 
   const getLinkedSelectionOrder = useCallback(
     () => getRegisteredContainers().map((entry) => entry.selectionId),
@@ -536,6 +579,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     if (!container) return;
 
     const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target;
+      if (
+        target instanceof Node &&
+        selectionPopoverRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setSelectionPopoverReady(false);
       if (!onSelectionStart) return;
       const selection = window.getSelection();
       if (!selection) return;
@@ -544,11 +595,20 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
     const handleMouseUp = (e: MouseEvent) => {
       const selection = window.getSelection();
+      const target = e.target;
+      if (
+        target instanceof Node &&
+        selectionPopoverRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setSelectionPopoverReady(false);
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-      // 校验选区是否仍位于容器内（防止跨容器拖动尾点导致误触发）
       const range = selection.getRangeAt(0);
-      if (!container.contains(range.commonAncestorContainer)) return;
+      if (!(target instanceof Node) || !container.contains(target)) return;
+      if (!range.intersectsNode(container)) return;
       if (!selection.toString().trim()) return;
+      setSelectionPopoverReady(true);
       onSelectionEnd?.({ x: e.clientX, y: e.clientY }, selection);
     };
 
@@ -561,6 +621,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [onSelectionStart, onSelectionEnd]);
+
+  useEffect(() => {
+    if (!hasSelection) setSelectionPopoverReady(false);
+  }, [hasSelection]);
 
   // 触摸设备长按文字触发的原生 contextmenu（系统选区菜单/复制弹窗）需屏蔽。
   // 仅在 pointerType === 'touch' 时 preventDefault，桌面右键菜单不受影响。
@@ -876,7 +940,9 @@ const persistedId = dragPersistedIdRef.current;
   // 计算「选区 Popover」锚点：活跃选区（未高亮）最顶部矩形的水平中点 + 顶边。
   // 与 popoverAnchor 互斥（活跃选区时 selectedRangeId 必为 null）。
   const selectionPopoverAnchor = (() => {
-    if (!hasSelection || !selectionPopover || rects.length === 0) return null;
+    if (!selectionPopoverReady || !hasSelection || !selectionPopover || rects.length === 0) {
+      return null;
+    }
     let top = rects[0];
     for (const r of rects) {
       if (r.y < top.y) top = r;
@@ -1059,9 +1125,17 @@ const persistedId = dragPersistedIdRef.current;
         const first = rects[0];
         const last = rects[rects.length - 1];
         const isDraggingActive = !!(dragHandle && !dragPersistedId);
+        const showStartHandle =
+          !linkedContext ||
+          !linkedRange ||
+          linkedRange.start.selectionId === linkedContext.selectionId;
+        const showEndHandle =
+          !linkedContext ||
+          !linkedRange ||
+          linkedRange.end.selectionId === linkedContext.selectionId;
         return (
           <>
-            {renderSingleHandle(
+            {showStartHandle && renderSingleHandle(
               'start',
               'active-selection',
               null,
@@ -1072,7 +1146,7 @@ const persistedId = dragPersistedIdRef.current;
               `hsn-selection-handle hsn-selection-handle--start${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
               buildHandleStyle(first.x, first.y + first.height / 2),
             )}
-            {renderSingleHandle(
+            {showEndHandle && renderSingleHandle(
               'end',
               'active-selection',
               null,
