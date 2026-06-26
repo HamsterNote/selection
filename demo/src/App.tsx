@@ -61,16 +61,11 @@ export default function App() {
   // ── 日志 ──────────────────────────────────────────────────────
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const logIdRef = useRef(0);
-  const appendLog = useCallback(
-    (kind: LogKind, source: string, detail: string) => {
-      logIdRef.current += 1;
-      const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-      setLogs((prev) =>
-        [{ id: logIdRef.current, kind, source, detail, ts }, ...prev].slice(0, 30),
-      );
-    },
-    [],
-  );
+  const appendLog = useCallback((kind: LogKind, source: string, detail: string) => {
+    logIdRef.current += 1;
+    const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    setLogs((prev) => [{ id: logIdRef.current, kind, source, detail, ts }, ...prev].slice(0, 30));
+  }, []);
 
   // ── per-selection refs：每个联动面板的命令式句柄 ──────────────
   const linkedRefs = useRef<Record<string, SelectionRef | null>>({
@@ -212,24 +207,31 @@ export default function App() {
   // 通用钩子：onSelectionStart / onSelectionEnd（联动和 legacy 共用日志逻辑）
   // ─────────────────────────────────────────────────────────────
   const makeSelectionStart = useCallback(
-    (source: string) =>
-      (pos: MousePosition, sel: Selection) => {
-        appendLog('start', source, `pos=(${pos.x},${pos.y}) "${sel.toString().slice(0, 20)}"`);
-      },
+    (source: string) => (pos: MousePosition, sel: Selection) => {
+      if (source === PAGE_A || source === PAGE_B) setActiveLinkedId(source);
+      appendLog('start', source, `pos=(${pos.x},${pos.y}) "${sel.toString().slice(0, 20)}"`);
+    },
     [appendLog],
   );
 
   const makeSelectionEnd = useCallback(
-    (source: string) =>
-      (pos: MousePosition, sel: Selection) => {
-        appendLog('end', source, `pos=(${pos.x},${pos.y}) "${sel.toString().slice(0, 40)}"`);
-      },
+    (source: string) => (pos: MousePosition, sel: Selection) => {
+      if (source === PAGE_A || source === PAGE_B) setActiveLinkedId(source);
+      appendLog('end', source, `pos=(${pos.x},${pos.y}) "${sel.toString().slice(0, 40)}"`);
+    },
     [appendLog],
   );
 
-  const handleLegacyHighlight = useCallback((range: SelectionRange) => {
-    appendLog('highlight', 'legacy', `[${range.start},${range.end}] "${range.text.slice(0, 40)}"`);
-  }, [appendLog]);
+  const handleLegacyHighlight = useCallback(
+    (range: SelectionRange) => {
+      appendLog(
+        'highlight',
+        'legacy',
+        `[${range.start},${range.end}] "${range.text.slice(0, 40)}"`,
+      );
+    },
+    [appendLog],
+  );
 
   // ── 高亮按钮（防焦点抢占）──────────────────────────────────────
   const preventFocusLoss = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
@@ -282,22 +284,40 @@ export default function App() {
       case 'blue':
         return {
           selection: { fill: 'rgba(64,156,255,0.35)' },
-          highlight: { fill: 'rgba(64,156,255,0.25)', stroke: { color: 'rgba(64,156,255,0.6)', width: 1 } },
-          selectedHighlight: { fill: 'rgba(64,156,255,0.4)', stroke: { color: '#1c7ed6', width: 2 } },
+          highlight: {
+            fill: 'rgba(64,156,255,0.25)',
+            stroke: { color: 'rgba(64,156,255,0.6)', width: 1 },
+          },
+          selectedHighlight: {
+            fill: 'rgba(64,156,255,0.4)',
+            stroke: { color: '#1c7ed6', width: 2 },
+          },
           handle: { fill: '#1c7ed6', stroke: { color: '#fff', width: 2 } },
         };
       case 'green':
         return {
           selection: { fill: 'rgba(64,192,87,0.35)' },
-          highlight: { fill: 'rgba(64,192,87,0.25)', stroke: { color: 'rgba(64,192,87,0.6)', width: 1 } },
-          selectedHighlight: { fill: 'rgba(64,192,87,0.4)', stroke: { color: '#2f9e44', width: 2 } },
+          highlight: {
+            fill: 'rgba(64,192,87,0.25)',
+            stroke: { color: 'rgba(64,192,87,0.6)', width: 1 },
+          },
+          selectedHighlight: {
+            fill: 'rgba(64,192,87,0.4)',
+            stroke: { color: '#2f9e44', width: 2 },
+          },
           handle: { fill: '#2f9e44', stroke: { color: '#fff', width: 2 } },
         };
       case 'purple':
         return {
           selection: { fill: 'rgba(156,81,255,0.35)' },
-          highlight: { fill: 'rgba(156,81,255,0.25)', stroke: { color: 'rgba(156,81,255,0.6)', width: 1 } },
-          selectedHighlight: { fill: 'rgba(156,81,255,0.4)', stroke: { color: '#7048e8', width: 2 } },
+          highlight: {
+            fill: 'rgba(156,81,255,0.25)',
+            stroke: { color: 'rgba(156,81,255,0.6)', width: 1 },
+          },
+          selectedHighlight: {
+            fill: 'rgba(156,81,255,0.4)',
+            stroke: { color: '#7048e8', width: 2 },
+          },
           handle: { fill: '#7048e8', stroke: { color: '#fff', width: 2 } },
         };
       default:
@@ -476,7 +496,15 @@ export default function App() {
       </div>
 
       {/* ─────────── 联动模式工具条 ─────────── */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          marginBottom: 12,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+        }}
+      >
         <span style={{ fontSize: 13, color: '#888' }}>高亮按钮作用于：</span>
         {LINKED_SELECTION_IDS.map((id) => (
           <label key={id} style={{ fontSize: 13, cursor: 'pointer', marginRight: 8 }}>
@@ -851,9 +879,7 @@ export default function App() {
       <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
         {/* 联动高亮列表 */}
         <div>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>
-            联动高亮（{overallData.items.length}）
-          </h2>
+          <h2 style={{ fontSize: 18, marginBottom: 12 }}>联动高亮（{overallData.items.length}）</h2>
           {overallData.items.length === 0 ? (
             <p style={{ color: '#999' }}>还没有联动高亮内容</p>
           ) : (
@@ -880,9 +906,7 @@ export default function App() {
                   >
                     <button
                       type="button"
-                      onClick={() =>
-                        handleLinkedSelectRange(isSelected ? null : r.id)
-                      }
+                      onClick={() => handleLinkedSelectRange(isSelected ? null : r.id)}
                       style={{
                         flex: 1,
                         textAlign: 'left',
@@ -965,9 +989,7 @@ export default function App() {
                       >
                         <button
                           type="button"
-                          onClick={() =>
-                            handleLegacySelectRange(isSelected ? null : r.id)
-                          }
+                          onClick={() => handleLegacySelectRange(isSelected ? null : r.id)}
                           style={{
                             flex: 1,
                             textAlign: 'left',
