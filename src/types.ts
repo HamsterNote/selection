@@ -48,6 +48,14 @@ export type LinkedSelectionRange = {
 };
 
 /**
+ * 联动模式下共享的拖拽状态。
+ * 用于在多个 linked Selection 容器之间同步“是否正在拖拽某 range 的手柄”。
+ */
+export type LinkedSelectionDragState =
+  | { type: 'active-selection' }
+  | { type: 'persisted-range'; id: string };
+
+/**
  * 联动模式的受控数据集合。
  * items 保存所有联动 range，selectedRangeId 表示当前选中项，selectionOrder 表示文本区域顺序。
  */
@@ -55,6 +63,18 @@ export type LinkedSelectionData = {
   items: LinkedSelectionRange[];
   selectedRangeId: string | null;
   selectionOrder: string[];
+  /**
+   * 共享的联动模式拖拽状态。
+   * 当用户在某个 linked Selection 容器中拖动手柄时，所有关联容器都会读取该字段，
+   * 同步隐藏对应的手柄与 Popover，避免跨区域拖拽时视觉元素堆叠或遮挡。
+   */
+  draggingRange?: LinkedSelectionDragState | null;
+  /**
+   * 共享的联动模式「正在鼠标拖选新文本」状态。
+   * 当用户在某个 linked Selection 容器中按下鼠标开始新选择时，所有关联容器都会读取该字段，
+   * 同步隐藏活跃选区手柄，避免跨区拖选时其它页面上的手柄仍然显示。
+   */
+  selectingText?: boolean;
 };
 
 /**
@@ -306,17 +326,6 @@ export interface SelectionProps {
    * 目前支持 `color`，未来可在该对象上扩展更多属性。
    */
   newSelectionOptions?: NewSelectionOptions;
-  /**
-   * 选中文本时隐藏活跃拖拽手柄。
-   *
-   * 仅影响活跃选区手柄（正在选中文本时的 start/end 圆圈），
-   * 不影响已确认高亮 range 被选中时的手柄——后者始终渲染，不受此开关影响。
-   *
-   * 开启后，所有文本选区都不显示活跃手柄；高亮 range 的选中手柄照常显示。
-   *
-   * @default false
-   */
-  hideHandlesOnSelection?: boolean;
   /**
    * 自定义拖拽手柄渲染函数。
    *

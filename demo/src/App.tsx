@@ -83,9 +83,7 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────
   // 新功能演示控制面板状态（联动和 legacy 面板共享）
   // ─────────────────────────────────────────────────────────────
-  // Feature 1：选中文本时不显示 range 手柄
-  const [hideHandlesOnSelection, setHideHandlesOnSelection] = useState(false);
-  // Feature 2：自定义手柄渲染
+  // Feature 1：自定义手柄渲染
   const [customHandleMode, setCustomHandleMode] = useState<'default' | 'square' | 'hidden'>(
     'default',
   );
@@ -432,29 +430,7 @@ export default function App() {
           </span>
         </label>
 
-        {/* Feature 1：首次选择隐藏手柄 */}
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 8,
-            fontSize: 13,
-            cursor: 'pointer',
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={hideHandlesOnSelection}
-            onChange={(e) => setHideHandlesOnSelection(e.target.checked)}
-          />
-          <span>
-            <strong>hideHandlesOnSelection</strong>
-            <span style={{ color: '#888' }}> — 选中文本时不显示拖拽手柄</span>
-          </span>
-        </label>
-
-        {/* Feature 2：手柄渲染模式 */}
+        {/* Feature 1：手柄渲染模式 */}
         <div style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 13, marginRight: 8 }}>
             <strong>renderHandle</strong>
@@ -574,7 +550,6 @@ export default function App() {
             selectedRangeId={null}
             onSelectionStart={makeSelectionStart(PAGE_A)}
             onSelectionEnd={makeSelectionEnd(PAGE_A)}
-            hideHandlesOnSelection={hideHandlesOnSelection}
             renderHandle={renderHandle}
             markerColors={markerColors}
             popover={linkedPopover}
@@ -662,7 +637,6 @@ export default function App() {
             selectedRangeId={null}
             onSelectionStart={makeSelectionStart(PAGE_B)}
             onSelectionEnd={makeSelectionEnd(PAGE_B)}
-            hideHandlesOnSelection={hideHandlesOnSelection}
             renderHandle={renderHandle}
             markerColors={markerColors}
             popover={linkedPopover}
@@ -795,7 +769,6 @@ export default function App() {
               onSelectionEnd={makeSelectionEnd('legacy')}
               onHighlight={handleLegacyHighlight}
               onUpdateRange={handleLegacyUpdateRange}
-              hideHandlesOnSelection={hideHandlesOnSelection}
               renderHandle={renderHandle}
               markerColors={markerColors}
               popover={
