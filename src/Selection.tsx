@@ -8,7 +8,13 @@ import {
   useRef,
   useState,
 } from 'react';
-import { percentRectsToPixelRects } from './geometry';
+import {
+  getEffectiveLinkedOverlayRectType,
+  getEffectiveLegacyOverlayRectType,
+  pixelRectsToPercentRects,
+  percentRectsToPixelRects,
+  storeRectsForOverlayRectType,
+} from './geometry';
 import {
   getRegisteredContainers,
   registerLinkedContainer,
@@ -23,6 +29,8 @@ import type {
   LinkedSelectionDragState,
   LinkedSelectionRange,
   OverlayRect,
+  OverlayRectType,
+  PercentOverlayRect,
   SelectionHandleOwner,
   SelectionHandleType,
   SelectionProps,
@@ -35,7 +43,9 @@ import './style.css';
 type PersistedRectGroup = {
   id: string;
   selectionId: string | null;
+  overlayRectType: OverlayRectType;
   rects: OverlayRect[];
+  percentRects: PercentOverlayRect[];
 };
 
 type LinkedModeContext = {
@@ -185,6 +195,7 @@ function rectListsEqual(a: PersistedRectGroup[], b: PersistedRectGroup[]): boole
   for (let i = 0; i < a.length; i += 1) {
     if (a[i].id !== b[i].id) return false;
     if (a[i].selectionId !== b[i].selectionId) return false;
+    if (a[i].overlayRectType !== b[i].overlayRectType) return false;
     const ra = a[i].rects;
     const rb = b[i].rects;
     if (ra.length !== rb.length) return false;
@@ -194,6 +205,19 @@ function rectListsEqual(a: PersistedRectGroup[], b: PersistedRectGroup[]): boole
         ra[j].y !== rb[j].y ||
         ra[j].width !== rb[j].width ||
         ra[j].height !== rb[j].height
+      ) {
+        return false;
+      }
+    }
+    const pa = a[i].percentRects;
+    const pb = b[i].percentRects;
+    if (pa.length !== pb.length) return false;
+    for (let j = 0; j < pa.length; j += 1) {
+      if (
+        pa[j].x !== pb[j].x ||
+        pa[j].y !== pb[j].y ||
+        pa[j].width !== pb[j].width ||
+        pa[j].height !== pb[j].height
       ) {
         return false;
       }
@@ -268,6 +292,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     newSelectionOptions,
     renderHandle,
     markerColors,
+    overlayRectType = 'px',
   },
   ref,
 ): React.ReactElement {
@@ -283,10 +308,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     [linkedMode, selectionId, linkedData],
   );
   const linkedSelectionId = linkedContext?.selectionId ?? null;
+  const linkedOverlayRectType = linkedContext?.data.overlayRectType ?? overlayRectType;
   const { selectedText, startIndex, endIndex, hasSelection, clear, rects, linkedRange } =
     useTextSelection(containerRef, {
       linkedMode: !!linkedContext,
       selectionId: linkedSelectionId,
+      overlayRectType: linkedOverlayRectType,
     });
 
   // 拖拽手柄状态：'start' 代表调整选区起点，'end' 代表调整终点
@@ -467,28 +494,54 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       if (linkedContext) {
         for (const item of linkedContext.data.items) {
           if (!isLinkedItemVisibleInSelection(item, linkedContext.selectionId)) continue;
-          const percentRects = item.rectsBySelectionId[linkedContext.selectionId];
-          if (!percentRects) continue;
+          const storedRects = item.rectsBySelectionId[linkedContext.selectionId];
+          if (!storedRects) continue;
+          const itemOverlayRectType = getEffectiveLinkedOverlayRectType(item);
+          const itemPixelRects =
+            itemOverlayRectType === 'px'
+              ? storedRects
+              : percentRectsToPixelRects(storedRects, container);
+          const itemPercentRects =
+            itemOverlayRectType === 'percent'
+              ? storedRects
+              : pixelRectsToPercentRects(storedRects, container);
           next.push({
             id: item.id,
             selectionId: linkedContext.selectionId,
-            rects: percentRectsToPixelRects(percentRects, container),
+            overlayRectType: itemOverlayRectType,
+            rects: itemPixelRects,
+            percentRects: itemPercentRects,
           });
         }
       } else {
         for (const range of ranges) {
-          const domRange = createRangeFromOffsets(container, range.start, range.end);
-          if (!domRange) continue;
+          const rangeOverlayRectType = getEffectiveLegacyOverlayRectType(range, overlayRectType);
+          const storedRects = range.rects;
+          const measuredRects = (() => {
+            const domRange = createRangeFromOffsets(container, range.start, range.end);
+            return domRange ? rangeToOverlayRects(domRange, container) : [];
+          })();
+          const sourceRects = storedRects && storedRects.length > 0 ? storedRects : measuredRects;
+          const rangePixelRects =
+            rangeOverlayRectType === 'px'
+              ? sourceRects
+              : percentRectsToPixelRects(sourceRects, container);
+          const rangePercentRects =
+            rangeOverlayRectType === 'percent'
+              ? sourceRects
+              : pixelRectsToPercentRects(sourceRects, container);
           next.push({
             id: range.id,
             selectionId: null,
-            rects: rangeToOverlayRects(domRange, container),
+            overlayRectType: rangeOverlayRectType,
+            rects: rangePixelRects,
+            percentRects: rangePercentRects,
           });
         }
       }
     }
     setPersistedRects((prev) => (rectListsEqual(prev, next) ? prev : next));
-  }, [linkedContext, ranges]);
+  }, [linkedContext, overlayRectType, ranges]);
 
   // ranges 变化时同步重算（layout effect 避免闪烁）。
   // 这是 React 官方推荐的 DOM 测量模式：useLayoutEffect 读取 DOM → setState 重渲。
@@ -543,6 +596,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           start: linkedRange.start.offset,
           end: linkedRange.end.offset,
           createdAt: linkedRange.createdAt,
+          overlayRectType: linkedRange.overlayRectType,
+          rects: linkedRange.rectsBySelectionId[linkedSelectionId],
         };
         onSelect?.(localRange);
         onHighlight?.(localRange);
@@ -552,12 +607,17 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       return;
     }
 
+    const container = containerRef.current;
+    if (!container) return;
+    const rangeOverlayRectType = overlayRectType;
     const range: SelectionRange = {
       id: generateId(),
       text: selectedText,
       start: startIndex,
       end: endIndex,
       createdAt: Date.now(),
+      overlayRectType: rangeOverlayRectType,
+      rects: storeRectsForOverlayRectType(rects, rangeOverlayRectType, container),
     };
 
     onSelect?.(range);
@@ -578,6 +638,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     endIndex,
     onSelect,
     onHighlight,
+    overlayRectType,
+    rects,
     selectRange,
   ]);
 
@@ -966,6 +1028,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           start: lo,
           end: hi,
           text: domRange.toString(),
+          overlayRectType: getEffectiveLegacyOverlayRectType(cur, overlayRectType),
+          rects: storeRectsForOverlayRectType(
+            rangeToOverlayRects(domRange, container),
+            getEffectiveLegacyOverlayRectType(cur, overlayRectType),
+            container,
+          ),
         };
         // 仅上报更新；不设原生选区。
         // persistedRects 由 ranges prop 变化驱动重算（useLayoutEffect），无需 selectionchange。
@@ -1014,7 +1082,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
     };
-  }, [dragHandle, setLinkedDraggingRange]);
+  }, [dragHandle, overlayRectType, setLinkedDraggingRange]);
 
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
   // 没有选中、或选中的 id 在 persistedRects 中找不到时为 null（不渲染 Popover）。
@@ -1057,6 +1125,33 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     if (handleStroke) {
       s.borderColor = handleStroke;
       s.borderWidth = handleStrokeWidth ? `${handleStrokeWidth}px` : '2px';
+      s.borderStyle = 'solid';
+    }
+    return s;
+  };
+
+  const activeSelectionOverlayRectType = linkedContext ? linkedOverlayRectType : overlayRectType;
+  const activePercentRects = (() => {
+    const container = containerRef.current;
+    if (!container || activeSelectionOverlayRectType !== 'percent') return [];
+    return pixelRectsToPercentRects(rects, container);
+  })();
+  const buildPercentRectStyle = (
+    rect: PercentOverlayRect,
+    fill: string | undefined,
+    stroke: string | undefined,
+    strokeWidth: number | undefined,
+  ): React.CSSProperties => {
+    const s: React.CSSProperties = {
+      left: `${rect.x}%`,
+      top: `${rect.y}%`,
+      width: `${rect.width}%`,
+      height: `${rect.height}%`,
+    };
+    if (fill) s.background = fill;
+    if (stroke) {
+      s.borderColor = stroke;
+      s.borderWidth = strokeWidth ? `${strokeWidth}px` : '2px';
       s.borderStyle = 'solid';
     }
     return s;
@@ -1122,7 +1217,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         focusable="false"
         preserveAspectRatio="none"
       >
-        {persistedRects.map(({ id, selectionId: rectSelectionId, rects: rs }) =>
+        {persistedRects.map(({ id, selectionId: rectSelectionId, overlayRectType: rectType, rects: rs }) =>
+          rectType === 'px' ?
           rs.map((r) => {
             const isSelected = id === currentSelectedRangeId;
             // 选中高亮：markerColors.selectedHighlight > CSS 默认（无 legacy shorthand）
@@ -1151,10 +1247,11 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                 {...(strokeWidth ? { strokeWidth } : null)}
               />
             );
-          }),
+          }) : null,
         )}
 
         {hasSelection &&
+          activeSelectionOverlayRectType === 'px' &&
           rects.map((r) => (
             <rect
               key={`active-${r.x},${r.y},${r.width},${r.height}`}
@@ -1171,6 +1268,43 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             />
           ))}
       </svg>
+
+      {(persistedRects.some((group) => group.overlayRectType === 'percent') ||
+        (hasSelection && activeSelectionOverlayRectType === 'percent')) && (
+        <div className="hsn-selection-percent-overlay" aria-hidden="true" role="presentation">
+          {persistedRects.map(({ id, overlayRectType: rectType, percentRects }) =>
+            rectType === 'percent'
+              ? percentRects.map((r) => {
+                  const isSelected = id === currentSelectedRangeId;
+                  const fill = isSelected ? selectedHighlightFill : unselectedHighlightFill;
+                  const stroke = isSelected ? selectedHighlightStroke : unselectedHighlightStroke;
+                  const strokeWidth = isSelected
+                    ? selectedHighlightStrokeWidth
+                    : unselectedHighlightStrokeWidth;
+                  return (
+                    <div
+                      key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
+                      className={`hsn-selection-percent-rect hsn-selection-percent-rect-highlight${
+                        isSelected ? ' hsn-selection-percent-rect-selected' : ''
+                      }`}
+                      style={buildPercentRectStyle(r, fill, stroke, strokeWidth)}
+                    />
+                  );
+                })
+              : null,
+          )}
+
+          {hasSelection &&
+            activeSelectionOverlayRectType === 'percent' &&
+            activePercentRects.map((r) => (
+              <div
+                key={`active-${r.x},${r.y},${r.width},${r.height}`}
+                className="hsn-selection-percent-rect hsn-selection-percent-rect-active"
+                style={buildPercentRectStyle(r, activeSelectionFill, undefined, undefined)}
+              />
+            ))}
+        </div>
+      )}
 
       {/* 内容层：children 原样渲染，不做任何包装 */}
       <div ref={contentRef} className="hsn-selection-content">

@@ -30,6 +30,8 @@ export type {
   MarkerStrokeStyle,
   MousePosition,
   NewSelectionOptions,
+  OverlayRect,
+  OverlayRectType,
   PercentOverlayRect,
   SelectionEndpoint,
   SelectionHandleOwner,

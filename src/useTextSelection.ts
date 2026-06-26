@@ -4,13 +4,14 @@ import { getRegisteredContainers, resolveEndpoint } from './linkedRegistry';
 import type {
   LinkedSelectionRange,
   OverlayRect,
-  PercentOverlayRect,
+  OverlayRectType,
   UseTextSelectionResult,
 } from './types';
 
 type UseTextSelectionOptions = {
   readonly linkedMode?: boolean;
   readonly selectionId?: string | null;
+  readonly overlayRectType?: OverlayRectType;
 };
 
 type LinkedSelectionCapture = {
@@ -127,6 +128,7 @@ function createTextFragmentRange(range: Range, textNode: Text): Range | null {
 function captureLinkedSelection(
   selection: Selection,
   localSelectionId: string | null | undefined,
+  overlayRectType: OverlayRectType,
 ): LinkedSelectionCapture | null {
   const range = selection.getRangeAt(0);
   if (!range) return null;
@@ -145,7 +147,7 @@ function captureLinkedSelection(
   const documentStart = backward ? end : start;
   const documentEnd = backward ? start : end;
 
-  const rectsBySelectionId: Record<string, PercentOverlayRect[]> = {};
+  const rectsBySelectionId: LinkedSelectionRange['rectsBySelectionId'] = {};
   let linkedText = '';
   let localRects: OverlayRect[] = [];
   let localStartIndex = -1;
@@ -171,10 +173,11 @@ function captureLinkedSelection(
     );
     if (fragmentStart === null || fragmentEnd === null) continue;
 
-    const percentRects = pixelRectsToPercentRects(pixelRects, entry.element);
-    if (percentRects.length === 0) continue;
+    const storedRects =
+      overlayRectType === 'px' ? pixelRects : pixelRectsToPercentRects(pixelRects, entry.element);
+    if (storedRects.length === 0) continue;
     linkedText += fragmentText;
-    rectsBySelectionId[entry.selectionId] = percentRects;
+    rectsBySelectionId[entry.selectionId] = storedRects;
 
     if (entry.selectionId === localSelectionId) {
       localRects = pixelRects;
@@ -192,6 +195,7 @@ function captureLinkedSelection(
       start: documentStart,
       end: documentEnd,
       createdAt: Date.now(),
+      overlayRectType,
       rectsBySelectionId,
     },
     localRects,
@@ -274,7 +278,11 @@ export function useTextSelection(
     }
 
     if (options.linkedMode) {
-      const linkedCapture = captureLinkedSelection(selection, options.selectionId);
+      const linkedCapture = captureLinkedSelection(
+        selection,
+        options.selectionId,
+        options.overlayRectType ?? 'px',
+      );
       if (!linkedCapture) {
         setState(EMPTY_STATE);
         return;
@@ -306,7 +314,7 @@ export function useTextSelection(
       rects,
       linkedRange: null,
     });
-  }, [containerRef, options.linkedMode, options.selectionId]);
+  }, [containerRef, options.linkedMode, options.overlayRectType, options.selectionId]);
 
   useEffect(() => {
     document.addEventListener('selectionchange', handleSelectionChange);

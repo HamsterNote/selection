@@ -1,4 +1,4 @@
-import { pixelRectsToPercentRects } from './geometry';
+import { getEffectiveLinkedOverlayRectType, storeRectsForOverlayRectType } from './geometry';
 import type { RegisteredLinkedContainer } from './linkedRegistry';
 import type { LinkedSelectionRange, OverlayRect, SelectionEndpoint } from './types';
 
@@ -224,11 +224,12 @@ export function updateLinkedRangeFromEndpoints({
     if (!fragment) continue;
 
     const pixelRects = rangeToOverlayRects(fragment, entry.element);
-    const percentRects = pixelRectsToPercentRects(pixelRects, entry.element);
-    if (percentRects.length === 0) continue;
+    const overlayRectType = getEffectiveLinkedOverlayRectType(item);
+    const storedRects = storeRectsForOverlayRectType(pixelRects, overlayRectType, entry.element);
+    if (storedRects.length === 0) continue;
 
     text += fragment.toString();
-    rectsBySelectionId[entry.selectionId] = percentRects;
+    rectsBySelectionId[entry.selectionId] = storedRects;
   }
 
   if (!text.trim()) return null;
@@ -238,6 +239,7 @@ export function updateLinkedRangeFromEndpoints({
     text,
     start: endpoints.start,
     end: endpoints.end,
+    overlayRectType: getEffectiveLinkedOverlayRectType(item),
     rectsBySelectionId,
   };
 }

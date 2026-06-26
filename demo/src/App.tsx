@@ -6,6 +6,7 @@ import type {
   LinkedSelectionRange,
   MarkerColors,
   MousePosition,
+  OverlayRectType,
   SelectionRange,
   SelectionRef,
 } from '@hamster-note/selection';
@@ -91,6 +92,30 @@ export default function App() {
   const [colorPreset, setColorPreset] = useState<'default' | 'blue' | 'green' | 'purple'>(
     'default',
   );
+  const [overlayRectType, setOverlayRectType] = useState<OverlayRectType>('px');
+
+  // 注入旧 linked 数据（无 overlayRectType）用于向后兼容 QA
+  const injectOldLinkedData = useCallback(() => {
+    setOverallData((prev) => ({
+      ...prev,
+      items: [
+        ...prev.items,
+        {
+          id: `legacy-linked-${Date.now()}`,
+          text: '旧数据兼容性测试',
+          start: { selectionId: PAGE_A, offset: 0 },
+          end: { selectionId: PAGE_A, offset: 8 },
+          createdAt: Date.now(),
+          rectsBySelectionId: {
+            [PAGE_A]: [
+              { x: 5, y: 5, width: 40, height: 10 },
+            ],
+          },
+        },
+      ],
+      selectedRangeId: null,
+    }));
+  }, []);
 
   // ─────────────────────────────────────────────────────────────
   // 联动模式回调
@@ -101,9 +126,12 @@ export default function App() {
    * Selection 组件在添加 / 拖拽更新后会调用此回调并传入完整的 next data，
    * 因此直接 setOverallData 即可完成 items 追加 / 不可变更新。
    */
-  const handleLinkedDataChange = useCallback((next: LinkedSelectionData) => {
-    setOverallData(next);
-  }, []);
+  const handleLinkedDataChange = useCallback(
+    (next: LinkedSelectionData) => {
+      setOverallData({ ...next, overlayRectType: next.overlayRectType ?? overlayRectType });
+    },
+    [overlayRectType],
+  );
 
   /**
    * onLinkedSelect：联动模式下确认高亮时触发（已在 onLinkedDataChange 中完成 items 追加）。
@@ -451,7 +479,7 @@ export default function App() {
         </div>
 
         {/* Feature 3：颜色预设 */}
-        <div>
+        <div style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 13, marginRight: 8 }}>
             <strong>markerColors</strong>
             <span style={{ color: '#888' }}> — 颜色预设：</span>
@@ -466,6 +494,30 @@ export default function App() {
                 style={{ marginRight: 4 }}
               />
               {preset === 'default' ? '默认(黄/粉)' : preset}
+            </label>
+          ))}
+        </div>
+
+        {/* Feature 4：Overlay Rect Type */}
+        <div>
+          <span style={{ fontSize: 13, marginRight: 8 }}>
+            <strong>overlayRectType</strong>
+            <span style={{ color: '#888' }}> — 覆盖层坐标单位：</span>
+          </span>
+          {(['px', 'percent'] as const).map((mode) => (
+            <label key={mode} style={{ marginRight: 12, fontSize: 13, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="overlay-rect-type"
+                value={mode}
+                checked={overlayRectType === mode}
+                onChange={() => {
+                  setOverlayRectType(mode);
+                  setOverallData((prev) => ({ ...prev, overlayRectType: mode }));
+                }}
+                style={{ marginRight: 4 }}
+              />
+              {mode === 'px' ? '像素 (SVG)' : '百分比 (div)'}
             </label>
           ))}
         </div>
@@ -527,6 +579,22 @@ export default function App() {
         >
           删除选中
         </button>
+        <button
+          type="button"
+          onClick={injectOldLinkedData}
+          onMouseDown={preventFocusLoss}
+          style={{
+            padding: '6px 14px',
+            background: '#7048e8',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+            fontSize: 13,
+          }}
+        >
+          注入旧 linked 数据（无 overlayRectType）
+        </button>
       </div>
 
       {/* ─────────── 联动模式：两个面板 ─────────── */}
@@ -555,6 +623,7 @@ export default function App() {
             popover={linkedPopover}
             selectionPopover={linkedSelectionPopover}
             newSelectionOptions={{ color: 'rgba(244,114,182,0.45)' }}
+            overlayRectType={overlayRectType}
           >
             {INTRO_A}
             {' 它的核心思想是'}
@@ -642,6 +711,7 @@ export default function App() {
             popover={linkedPopover}
             selectionPopover={linkedSelectionPopover}
             newSelectionOptions={{ color: 'rgba(244,114,182,0.45)' }}
+            overlayRectType={overlayRectType}
           >
             {INTRO_B}
             {' 与其它框架不同的是，它通过'}
@@ -810,6 +880,7 @@ export default function App() {
                 </button>
               }
               newSelectionOptions={{ color: 'rgba(244,114,182,0.45)' }}
+              overlayRectType={overlayRectType}
             >
               {LEGACY_TEXT}
               <br />
@@ -981,6 +1052,17 @@ export default function App() {
                               已选中
                             </strong>
                           )}
+                          <span
+                            style={{
+                              display: 'block',
+                              fontSize: 10,
+                              color: '#888',
+                              marginTop: 2,
+                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                            }}
+                          >
+                            {r.overlayRectType ?? 'px'}: {JSON.stringify(r.rects ?? [])}
+                          </span>
                         </button>
                         <button
                           type="button"

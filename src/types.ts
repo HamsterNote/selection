@@ -1,6 +1,13 @@
 import type { CSSProperties, PointerEvent, ReactNode } from 'react';
 
 /**
+ * Overlay 矩形坐标类型。
+ * - `'px'`：像素坐标，随容器当前尺寸存储/渲染。
+ * - `'percent'`：百分比坐标，按 `selection-container` 宽高归一化存储，用 div 渲染。
+ */
+export type OverlayRectType = 'px' | 'percent';
+
+/**
  * 选区数据结构
  * 表示一段被用户选中/高亮的文本
  */
@@ -15,6 +22,18 @@ export interface SelectionRange {
   end: number;
   /** 创建时间戳 */
   createdAt: number;
+  /**
+   * 当前 range 的 Overlay 矩形坐标类型。
+   * 缺省时，新创建的 range 默认 `'px'`，以保持旧行为；
+   * 联动模式下缺省的历史数据按 `'percent'` 解析（因为 rectsBySelectionId 已按百分比存储）。
+   */
+  overlayRectType?: OverlayRectType;
+  /**
+   * 当前 range 的 Overlay 矩形列表。
+   * 当 `overlayRectType === 'px'` 时为像素坐标；
+   * 当 `overlayRectType === 'percent'` 时为相对 selection-container 的 0-100 百分比坐标。
+   */
+  rects?: OverlayRect[] | PercentOverlayRect[];
 }
 
 /**
@@ -35,6 +54,16 @@ export type PercentOverlayRect = {
 };
 
 /**
+ * 一个相对于容器左上角的矩形（绝对定位用）
+ */
+export interface OverlayRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
  * 联动模式下跨一个或多个文本区域的公开 range 数据结构。
  * start/end 通过 SelectionEndpoint 指向不同 selectionId，rectsBySelectionId 保存每个区域的 Overlay 矩形。
  */
@@ -44,7 +73,17 @@ export type LinkedSelectionRange = {
   start: SelectionEndpoint;
   end: SelectionEndpoint;
   createdAt: number;
-  rectsBySelectionId: Record<string, PercentOverlayRect[]>;
+  /**
+   * 当前联动 range 的 Overlay 矩形坐标类型。
+   * 缺省时按 `'percent'` 解析，以兼容旧数据（ rectsBySelectionId 已按百分比存储）。
+   */
+  overlayRectType?: OverlayRectType;
+  /**
+   * 每个 selectionId 对应的 Overlay 矩形列表。
+   * 当 `overlayRectType === 'px'` 时为像素坐标；
+   * 当 `overlayRectType === 'percent'` 或缺省时为 0-100 百分比坐标。
+   */
+  rectsBySelectionId: Record<string, OverlayRect[] | PercentOverlayRect[]>;
 };
 
 /**
@@ -63,6 +102,11 @@ export type LinkedSelectionData = {
   items: LinkedSelectionRange[];
   selectedRangeId: string | null;
   selectionOrder: string[];
+  /**
+   * 当前联动数据集合默认使用的 Overlay 矩形坐标类型。
+   * 新创建的联动 range 会继承该值；缺省时按 `'percent'` 处理以兼容旧数据。
+   */
+  overlayRectType?: OverlayRectType;
   /**
    * 共享的联动模式拖拽状态。
    * 当用户在某个 linked Selection 容器中拖动手柄时，所有关联容器都会读取该字段，
@@ -228,6 +272,12 @@ export interface SelectionProps {
   selectionId?: string;
   /** 是否启用跨多个文本区域的联动选区模式；不传或 false 时保持 legacy 行为。 */
   linkedMode?: boolean;
+  /**
+   * Overlay 矩形坐标类型，控制新 range 的数据存储方式与渲染方式。
+   * - `'px'`：像素坐标，SVG `<rect>` 渲染（默认，保持旧行为）。
+   * - `'percent'`：相对 selection-container 的 0-100 百分比坐标，`<div>` 渲染。
+   */
+  overlayRectType?: OverlayRectType;
   /** 联动模式的受控数据；legacy 调用方可不传。 */
   linkedData?: LinkedSelectionData;
   /** 联动模式数据变化时触发，调用方应据此更新 linkedData。 */

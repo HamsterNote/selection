@@ -1,4 +1,10 @@
-import type { OverlayRect, PercentOverlayRect } from './types';
+import type {
+  LinkedSelectionRange,
+  OverlayRect,
+  OverlayRectType,
+  PercentOverlayRect,
+  SelectionRange,
+} from './types';
 
 /** 将百分比坐标统一到 4 位小数，且只修正极小浮点溢出到 0-100 边界 */
 function normalizePercentValue(value: number): number {
@@ -65,4 +71,25 @@ export function percentRectListsEqual(
     }
   }
   return true;
+}
+
+export function getEffectiveLegacyOverlayRectType(
+  range: Pick<SelectionRange, 'overlayRectType'>,
+  fallback: OverlayRectType,
+): OverlayRectType {
+  return range.overlayRectType ?? fallback;
+}
+
+export function getEffectiveLinkedOverlayRectType(
+  item: Pick<LinkedSelectionRange, 'overlayRectType'>,
+): OverlayRectType {
+  return item.overlayRectType ?? 'percent';
+}
+
+export function storeRectsForOverlayRectType(
+  pixelRects: OverlayRect[],
+  overlayRectType: OverlayRectType,
+  container: HTMLElement,
+): OverlayRect[] | PercentOverlayRect[] {
+  return overlayRectType === 'px' ? pixelRects : pixelRectsToPercentRects(pixelRects, container);
 }
