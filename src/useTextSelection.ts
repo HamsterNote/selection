@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { pixelRectsToPercentRects } from './geometry';
 import { getRegisteredContainers, resolveEndpoint } from './linkedRegistry';
 import type {
@@ -12,6 +13,8 @@ type UseTextSelectionOptions = {
   readonly linkedMode?: boolean;
   readonly selectionId?: string | null;
   readonly overlayRectType?: OverlayRectType;
+  readonly markerStyle?: CSSProperties;
+  readonly selectionStyle?: CSSProperties;
 };
 
 type LinkedSelectionCapture = {
@@ -129,6 +132,8 @@ function captureLinkedSelection(
   selection: Selection,
   localSelectionId: string | null | undefined,
   overlayRectType: OverlayRectType,
+  markerStyle: CSSProperties | undefined,
+  selectionStyle: CSSProperties | undefined,
 ): LinkedSelectionCapture | null {
   const range = selection.getRangeAt(0);
   if (!range) return null;
@@ -197,6 +202,8 @@ function captureLinkedSelection(
       createdAt: Date.now(),
       overlayRectType,
       rectsBySelectionId,
+      markerStyle,
+      selectionStyle,
     },
     localRects,
     localStartIndex,
@@ -282,6 +289,8 @@ export function useTextSelection(
         selection,
         options.selectionId,
         options.overlayRectType ?? 'px',
+        options.markerStyle,
+        options.selectionStyle,
       );
       if (!linkedCapture) {
         setState(EMPTY_STATE);
@@ -314,7 +323,7 @@ export function useTextSelection(
       rects,
       linkedRange: null,
     });
-  }, [containerRef, options.linkedMode, options.overlayRectType, options.selectionId]);
+  }, [containerRef, options.linkedMode, options.overlayRectType, options.selectionId, options.markerStyle, options.selectionStyle]);
 
   useEffect(() => {
     document.addEventListener('selectionchange', handleSelectionChange);

@@ -1,6 +1,7 @@
 import { getEffectiveLinkedOverlayRectType, storeRectsForOverlayRectType } from './geometry';
 import type { RegisteredLinkedContainer } from './linkedRegistry';
 import type { LinkedSelectionRange, OverlayRect, SelectionEndpoint } from './types';
+import type { RangeStyleSnapshot } from './styleUtils';
 
 type BoundaryPoint = {
   readonly node: Node;
@@ -17,6 +18,7 @@ type LinkedRangeUpdateInput = {
   readonly fixedEndpoint: SelectionEndpoint;
   readonly movingEndpoint: SelectionEndpoint;
   readonly containers: readonly RegisteredLinkedContainer[];
+  readonly fallbackStyleSnapshot?: RangeStyleSnapshot;
 };
 
 type LinkedDomRangeInput = {
@@ -209,6 +211,7 @@ export function updateLinkedRangeFromEndpoints({
   fixedEndpoint,
   movingEndpoint,
   containers,
+  fallbackStyleSnapshot,
 }: LinkedRangeUpdateInput): LinkedSelectionRange | null {
   const endpoints = orderEndpoints(fixedEndpoint, movingEndpoint, containers);
   if (!endpoints) return null;
@@ -241,5 +244,7 @@ export function updateLinkedRangeFromEndpoints({
     end: endpoints.end,
     overlayRectType: getEffectiveLinkedOverlayRectType(item),
     rectsBySelectionId,
+    markerStyle: item.markerStyle ?? fallbackStyleSnapshot?.markerStyle,
+    selectionStyle: item.selectionStyle ?? fallbackStyleSnapshot?.selectionStyle,
   };
 }

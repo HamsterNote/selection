@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { CSSProperties } from 'react';
 import {
   getEffectiveLinkedOverlayRectType,
   getEffectiveLegacyOverlayRectType,
@@ -37,6 +38,17 @@ import type {
   SelectionRange,
   SelectionRef,
 } from './types';
+import {
+  buildPercentRectStyle,
+  completeRangeStyleSnapshot,
+  createRangeStyleSnapshot,
+  deriveHandleVisualStyle,
+  getEffectiveMarkerStyle,
+  getEffectiveSelectionStyle,
+  styleShallowEqual,
+  styleToSvgRectProps,
+  type StyleInput,
+} from './styleUtils';
 import { useTextSelection } from './useTextSelection';
 import './style.css';
 
@@ -46,6 +58,8 @@ type PersistedRectGroup = {
   overlayRectType: OverlayRectType;
   rects: OverlayRect[];
   percentRects: PercentOverlayRect[];
+  markerStyle?: CSSProperties;
+  selectionStyle?: CSSProperties;
 };
 
 type LinkedModeContext = {
@@ -196,6 +210,8 @@ function rectListsEqual(a: PersistedRectGroup[], b: PersistedRectGroup[]): boole
     if (a[i].id !== b[i].id) return false;
     if (a[i].selectionId !== b[i].selectionId) return false;
     if (a[i].overlayRectType !== b[i].overlayRectType) return false;
+    if (!styleShallowEqual(a[i].markerStyle, b[i].markerStyle)) return false;
+    if (!styleShallowEqual(a[i].selectionStyle, b[i].selectionStyle)) return false;
     const ra = a[i].rects;
     const rb = b[i].rects;
     if (ra.length !== rb.length) return false;
@@ -292,6 +308,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     newSelectionOptions,
     renderHandle,
     markerColors,
+    markerStyle,
+    selectionStyle,
     overlayRectType = 'px',
   },
   ref,
@@ -309,11 +327,37 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   );
   const linkedSelectionId = linkedContext?.selectionId ?? null;
   const linkedOverlayRectType = linkedContext?.data.overlayRectType ?? overlayRectType;
+
+  // 样式输入：新 API + 旧版兼容 props，memo 化避免稳定引用变化导致不必要的重渲染。
+  const styleInput: StyleInput = useMemo(
+    () => ({
+      markerStyle,
+      selectionStyle,
+      markerColors,
+      highlightColor,
+      selectionColor,
+      newSelectionOptions,
+    }),
+    [markerStyle, selectionStyle, markerColors, highlightColor, selectionColor, newSelectionOptions],
+  );
+  // 写入 range 数据时的样式快照，浅拷贝以保证老数据不受后续 props 变化影响。
+  const styleSnapshot = useMemo(() => createRangeStyleSnapshot(styleInput), [styleInput]);
+  // 活跃选区始终使用当前 props 解析出的 selectionStyle（尚未持久化）。
+  const activeSelectionStyle = useMemo(
+    () => getEffectiveSelectionStyle(undefined, styleInput),
+    [styleInput],
+  );
+  // pointermove 监听器通过 ref 读取最新样式输入，避免重注册。
+  const styleInputRef = useRef(styleInput);
+  styleInputRef.current = styleInput;
+
   const { selectedText, startIndex, endIndex, hasSelection, clear, rects, linkedRange } =
     useTextSelection(containerRef, {
       linkedMode: !!linkedContext,
       selectionId: linkedSelectionId,
       overlayRectType: linkedOverlayRectType,
+      markerStyle: styleSnapshot.markerStyle,
+      selectionStyle: styleSnapshot.selectionStyle,
     });
 
   // 拖拽手柄状态：'start' 代表调整选区起点，'end' 代表调整终点
@@ -442,43 +486,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     syncSelectionOrder(linkedContext.data, getLinkedSelectionOrder(), onLinkedDataChange);
   }, [getLinkedSelectionOrder, linkedContext, onLinkedDataChange]);
 
-  // 颜色优先级：markerColors > legacy props > CSS 默认
-  // 活跃选区：newSelectionOptions.color > markerColors.selection.fill > selectionColor > CSS
-  const activeSelectionFill =
-    newSelectionOptions?.color ?? markerColors?.selection?.fill ?? selectionColor;
-
-  // 未选中高亮：markerColors.highlight.fill > highlightColor > CSS
-  const unselectedHighlightFill = markerColors?.highlight?.fill ?? highlightColor;
-
-  // 选中高亮
-  const selectedHighlightFill = markerColors?.selectedHighlight?.fill;
-  const selectedHighlightStroke =
-    typeof markerColors?.selectedHighlight?.stroke === 'string'
-      ? markerColors.selectedHighlight.stroke
-      : markerColors?.selectedHighlight?.stroke?.color;
-  const selectedHighlightStrokeWidth =
-    typeof markerColors?.selectedHighlight?.stroke === 'object'
-      ? markerColors.selectedHighlight.stroke.width
-      : undefined;
-
-  // 未选中高亮描边
-  const unselectedHighlightStroke =
-    typeof markerColors?.highlight?.stroke === 'string'
-      ? markerColors.highlight.stroke
-      : markerColors?.highlight?.stroke?.color;
-  const unselectedHighlightStrokeWidth =
-    typeof markerColors?.highlight?.stroke === 'object'
-      ? markerColors.highlight.stroke.width
-      : undefined;
-
-  // 手柄颜色
-  const handleFill = markerColors?.handle?.fill;
-  const handleStroke =
-    typeof markerColors?.handle?.stroke === 'string'
-      ? markerColors.handle.stroke
-      : markerColors?.handle?.stroke?.color;
-  const handleStrokeWidth =
-    typeof markerColors?.handle?.stroke === 'object' ? markerColors.handle.stroke.width : undefined;
+  // 旧版 markerColors.handle 仍作为手柄样式的最后回退，保留引用以便传给 deriveHandleVisualStyle。
+  const legacyHandleFallback = markerColors?.handle;
 
   /** 每个已确认 range 对应的 Overlay 矩形组 */
   const [persistedRects, setPersistedRects] = useState<PersistedRectGroup[]>([]);
@@ -511,6 +520,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             overlayRectType: itemOverlayRectType,
             rects: itemPixelRects,
             percentRects: itemPercentRects,
+            markerStyle: item.markerStyle,
+            selectionStyle: item.selectionStyle,
           });
         }
       } else {
@@ -536,6 +547,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             overlayRectType: rangeOverlayRectType,
             rects: rangePixelRects,
             percentRects: rangePercentRects,
+            markerStyle: range.markerStyle,
+            selectionStyle: range.selectionStyle,
           });
         }
       }
@@ -598,6 +611,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           createdAt: linkedRange.createdAt,
           overlayRectType: linkedRange.overlayRectType,
           rects: linkedRange.rectsBySelectionId[linkedSelectionId],
+          markerStyle: linkedRange.markerStyle,
+          selectionStyle: linkedRange.selectionStyle,
         };
         onSelect?.(localRange);
         onHighlight?.(localRange);
@@ -618,6 +633,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       createdAt: Date.now(),
       overlayRectType: rangeOverlayRectType,
       rects: storeRectsForOverlayRectType(rects, rangeOverlayRectType, container),
+      ...styleSnapshot,
     };
 
     onSelect?.(range);
@@ -641,6 +657,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     overlayRectType,
     rects,
     selectRange,
+    styleSnapshot,
   ]);
 
   // 用 useImperativeHandle 暴露命令式 API。
@@ -963,6 +980,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             fixedEndpoint: anchorEndpoint,
             movingEndpoint: linkedMovingEndpoint,
             containers: getRegisteredContainers(),
+            fallbackStyleSnapshot: styleSnapshot,
           });
           if (!updatedItem) return;
           if (
@@ -1034,6 +1052,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             getEffectiveLegacyOverlayRectType(cur, overlayRectType),
             container,
           ),
+          ...completeRangeStyleSnapshot(
+            { markerStyle: cur.markerStyle, selectionStyle: cur.selectionStyle },
+            styleInputRef.current,
+          ),
         };
         // 仅上报更新；不设原生选区。
         // persistedRects 由 ranges prop 变化驱动重算（useLayoutEffect），无需 selectionchange。
@@ -1082,7 +1104,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
     };
-  }, [dragHandle, overlayRectType, setLinkedDraggingRange]);
+  }, [dragHandle, overlayRectType, setLinkedDraggingRange, styleSnapshot]);
 
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
   // 没有选中、或选中的 id 在 persistedRects 中找不到时为 null（不渲染 Popover）。
@@ -1116,15 +1138,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     return { x: top.x + top.width / 2, y: top.y };
   })();
 
-  // 构建手柄的内联样式：绝对定位 + markerColors.handle 颜色覆盖。
-  // 当外部传入 renderHandle 时，这个 style 通过 HandleRenderProps.style 传给外部组件，
-  // 外部组件应合并到根元素以获得定位和默认颜色。
-  const buildHandleStyle = (left: number, top: number): React.CSSProperties => {
+  // 构建手柄的内联样式：绝对定位 + 从 owner 样式推导的颜色。
+  const buildHandleStyle = (left: number, top: number, ownerStyle: CSSProperties | undefined): React.CSSProperties => {
     const s: React.CSSProperties = { left, top };
-    if (handleFill) s.background = handleFill;
-    if (handleStroke) {
-      s.borderColor = handleStroke;
-      s.borderWidth = handleStrokeWidth ? `${handleStrokeWidth}px` : '2px';
+    const visual = deriveHandleVisualStyle(ownerStyle, legacyHandleFallback);
+    if (visual.background !== undefined) s.background = visual.background;
+    if (visual.borderColor !== undefined) {
+      s.borderColor = visual.borderColor;
+      s.borderWidth = visual.borderWidth !== undefined ? `${visual.borderWidth}px` : '2px';
       s.borderStyle = 'solid';
     }
     return s;
@@ -1136,26 +1157,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     if (!container || activeSelectionOverlayRectType !== 'percent') return [];
     return pixelRectsToPercentRects(rects, container);
   })();
-  const buildPercentRectStyle = (
-    rect: PercentOverlayRect,
-    fill: string | undefined,
-    stroke: string | undefined,
-    strokeWidth: number | undefined,
-  ): React.CSSProperties => {
-    const s: React.CSSProperties = {
-      left: `${rect.x}%`,
-      top: `${rect.y}%`,
-      width: `${rect.width}%`,
-      height: `${rect.height}%`,
-    };
-    if (fill) s.background = fill;
-    if (stroke) {
-      s.borderColor = stroke;
-      s.borderWidth = strokeWidth ? `${strokeWidth}px` : '2px';
-      s.borderStyle = 'solid';
-    }
-    return s;
-  };
 
   // 渲染单个手柄：renderHandle 优先，返回 null 则隐藏（不留 fallback），否则用默认 <button>。
   const renderSingleHandle = (
@@ -1217,17 +1218,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         focusable="false"
         preserveAspectRatio="none"
       >
-        {persistedRects.map(({ id, selectionId: rectSelectionId, overlayRectType: rectType, rects: rs }) =>
-          rectType === 'px' ?
-          rs.map((r) => {
+        {persistedRects.map((group) => {
+          const { id, selectionId: rectSelectionId, overlayRectType: rectType, rects: rs } = group;
+          if (rectType !== 'px') return null;
+          const groupStyle = getEffectiveMarkerStyle(group.markerStyle, styleInput);
+          const svgProps: { fill?: string; stroke?: string; strokeWidth?: number | string } = styleToSvgRectProps(groupStyle);
+          return rs.map((r) => {
             const isSelected = id === currentSelectedRangeId;
-            // 选中高亮：markerColors.selectedHighlight > CSS 默认（无 legacy shorthand）
-            // 未选中高亮：markerColors.highlight > highlightColor > CSS 默认
-            const fill = isSelected ? selectedHighlightFill : unselectedHighlightFill;
-            const stroke = isSelected ? selectedHighlightStroke : unselectedHighlightStroke;
-            const strokeWidth = isSelected
-              ? selectedHighlightStrokeWidth
-              : unselectedHighlightStrokeWidth;
             return (
               <rect
                 key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
@@ -1242,17 +1239,17 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                 height={r.height}
                 rx={2}
                 ry={2}
-                {...(fill ? { fill } : null)}
-                {...(stroke ? { stroke } : null)}
-                {...(strokeWidth ? { strokeWidth } : null)}
+                style={svgProps}
               />
             );
-          }) : null,
-        )}
+          });
+        })}
 
         {hasSelection &&
           activeSelectionOverlayRectType === 'px' &&
-          rects.map((r) => (
+          rects.map((r) => {
+          const activeSvgProps: { fill?: string; stroke?: string; strokeWidth?: number | string } = styleToSvgRectProps(activeSelectionStyle);
+          return (
             <rect
               key={`active-${r.x},${r.y},${r.width},${r.height}`}
               data-range-id=""
@@ -1264,35 +1261,35 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
               height={r.height}
               rx={2}
               ry={2}
-              {...(activeSelectionFill ? { fill: activeSelectionFill } : null)}
+              style={activeSvgProps}
             />
-          ))}
+          );
+          })}
       </svg>
 
       {(persistedRects.some((group) => group.overlayRectType === 'percent') ||
         (hasSelection && activeSelectionOverlayRectType === 'percent')) && (
         <div className="hsn-selection-percent-overlay" aria-hidden="true" role="presentation">
-          {persistedRects.map(({ id, overlayRectType: rectType, percentRects }) =>
-            rectType === 'percent'
-              ? percentRects.map((r) => {
-                  const isSelected = id === currentSelectedRangeId;
-                  const fill = isSelected ? selectedHighlightFill : unselectedHighlightFill;
-                  const stroke = isSelected ? selectedHighlightStroke : unselectedHighlightStroke;
-                  const strokeWidth = isSelected
-                    ? selectedHighlightStrokeWidth
-                    : unselectedHighlightStrokeWidth;
-                  return (
-                    <div
-                      key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
-                      className={`hsn-selection-percent-rect hsn-selection-percent-rect-highlight${
-                        isSelected ? ' hsn-selection-percent-rect-selected' : ''
-                      }`}
-                      style={buildPercentRectStyle(r, fill, stroke, strokeWidth)}
-                    />
-                  );
-                })
-              : null,
-          )}
+          {persistedRects.map((group) => {
+            const { id, overlayRectType: rectType, percentRects } = group;
+            if (rectType !== 'percent') return null;
+            const groupStyle = getEffectiveMarkerStyle(group.markerStyle, styleInput);
+            return percentRects.map((r) => {
+              const isSelected = id === currentSelectedRangeId;
+              return (
+                <div
+                  key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
+                  className={`hsn-selection-percent-rect hsn-selection-percent-rect-highlight${
+                    isSelected ? ' hsn-selection-percent-rect-selected' : ''
+                  }`}
+                  style={buildPercentRectStyle(
+                    { left: `${r.x}%`, top: `${r.y}%`, width: `${r.width}%`, height: `${r.height}%` },
+                    groupStyle,
+                  )}
+                />
+              );
+            });
+          })}
 
           {hasSelection &&
             activeSelectionOverlayRectType === 'percent' &&
@@ -1300,7 +1297,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
               <div
                 key={`active-${r.x},${r.y},${r.width},${r.height}`}
                 className="hsn-selection-percent-rect hsn-selection-percent-rect-active"
-                style={buildPercentRectStyle(r, activeSelectionFill, undefined, undefined)}
+                style={buildPercentRectStyle(
+                  { left: `${r.x}%`, top: `${r.y}%`, width: `${r.width}%`, height: `${r.height}%` },
+                  activeSelectionStyle,
+                )}
               />
             ))}
         </div>
@@ -1377,7 +1377,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('start'),
                   '拖动以调整选区起点',
                   `hsn-selection-handle hsn-selection-handle--start${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(first.x, first.y + first.height / 2),
+                  buildHandleStyle(first.x, first.y + first.height / 2, activeSelectionStyle),
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -1389,7 +1389,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('end'),
                   '拖动以调整选区终点',
                   `hsn-selection-handle hsn-selection-handle--end${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(last.x + last.width, last.y + last.height / 2),
+                  buildHandleStyle(last.x + last.width, last.y + last.height / 2, activeSelectionStyle),
                 )}
             </>
           );
@@ -1411,6 +1411,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           }
           const entry = persistedRects.find((p) => p.id === currentSelectedRangeId);
           if (!entry || entry.rects.length === 0) return null;
+          const persistedHandleStyle = getEffectiveMarkerStyle(entry.markerStyle, styleInput);
           const rs = entry.rects;
           const first = rs[0];
           const last = rs[rs.length - 1];
@@ -1427,7 +1428,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('start', currentSelectedRangeId),
                   '拖动以调整高亮起点',
                   `hsn-selection-handle hsn-selection-handle--start${isDraggingPersisted ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(first.x, first.y + first.height / 2),
+                  buildHandleStyle(first.x, first.y + first.height / 2, persistedHandleStyle),
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -1439,7 +1440,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('end', currentSelectedRangeId),
                   '拖动以调整高亮终点',
                   `hsn-selection-handle hsn-selection-handle--end${isDraggingPersisted ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(last.x + last.width, last.y + last.height / 2),
+                  buildHandleStyle(last.x + last.width, last.y + last.height / 2, persistedHandleStyle),
                 )}
             </>
           );

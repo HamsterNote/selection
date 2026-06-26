@@ -34,6 +34,16 @@ export interface SelectionRange {
    * 当 `overlayRectType === 'percent'` 时为相对 selection-container 的 0-100 百分比坐标。
    */
   rects?: OverlayRect[] | PercentOverlayRect[];
+  /**
+   * 创建该 range 时确认的持久高亮样式，存入数据后不应再受 props 变化影响。
+   * 缺省时渲染回退到当前 `markerStyle` prop、旧版颜色 props 或 CSS 默认。
+   */
+  markerStyle?: CSSProperties;
+  /**
+   * 创建该 range 时确认的活跃选区样式快照，用于数据溯源与手柄颜色推导。
+   * 缺省时渲染回退到当前 `selectionStyle` prop、旧版颜色 props 或 CSS 默认。
+   */
+  selectionStyle?: CSSProperties;
 }
 
 /**
@@ -84,6 +94,16 @@ export type LinkedSelectionRange = {
    * 当 `overlayRectType === 'percent'` 或缺省时为 0-100 百分比坐标。
    */
   rectsBySelectionId: Record<string, OverlayRect[] | PercentOverlayRect[]>;
+  /**
+   * 创建该联动 range 时确认的持久高亮样式，存入数据后不应再受 props 变化影响。
+   * 缺省时渲染回退到当前 `markerStyle` prop、旧版颜色 props 或 CSS 默认。
+   */
+  markerStyle?: CSSProperties;
+  /**
+   * 创建该联动 range 时确认的活跃选区样式快照，用于数据溯源与手柄颜色推导。
+   * 缺省时渲染回退到当前 `selectionStyle` prop、旧版颜色 props 或 CSS 默认。
+   */
+  selectionStyle?: CSSProperties;
 };
 
 /**
@@ -145,9 +165,15 @@ export interface MousePosition {
 /**
  * 新绘制选区（正在选中、尚未高亮的活跃选区）的选项集合。
  * 后续可在该对象上继续扩展更多字段（笔触、边框、动画等）。
+ *
+ * @deprecated 请使用 `selectionStyle`（CSSProperties）。
  */
 export interface NewSelectionOptions {
-  /** 活跃选区的 Overlay 颜色（覆盖默认半透明粉）；不传则使用 markerColors.selection.fill 或 selectionColor 或 CSS 默认 */
+  /**
+   * 活跃选区的 Overlay 颜色（覆盖默认半透明粉）；不传则使用 markerColors.selection.fill 或 selectionColor 或 CSS 默认
+   *
+   * @deprecated 请使用 `selectionStyle`（CSSProperties）。
+   */
   color?: string;
 }
 
@@ -204,7 +230,10 @@ export interface HandleRenderProps {
 // 标记颜色（Marker Colors）配置类型
 // ---------------------------------------------------------------------------
 
-/** 边框/描边样式（可选颜色 + 可选宽度） */
+/** 边框/描边样式（可选颜色 + 可选宽度）
+ *
+ * @deprecated 请使用 `markerStyle` / `selectionStyle`（CSSProperties）。
+ */
 export interface MarkerStrokeStyle {
   /** 边框颜色（SVG stroke 或 CSS border-color） */
   color?: string;
@@ -212,7 +241,10 @@ export interface MarkerStrokeStyle {
   width?: number;
 }
 
-/** 单个标记的颜色样式（填充 + 可选边框） */
+/** 单个标记的颜色样式（填充 + 可选边框）
+ *
+ * @deprecated 请使用 `markerStyle` / `selectionStyle`（CSSProperties）。
+ */
 export interface MarkerColorStyle {
   /** 填充颜色（SVG fill 或 CSS background-color） */
   fill?: string;
@@ -231,6 +263,8 @@ export interface MarkerColorStyle {
  * 所有字段可选；不传的字段回退到 CSS 默认值。
  * 与 legacy props（highlightColor / selectionColor / newSelectionOptions.color）共存时，
  * 新 API 优先级高于 legacy props。
+ *
+ * @deprecated 请使用 `markerStyle` / `selectionStyle`（CSSProperties）。
  */
 export interface MarkerColors {
   /** 活跃选区（正在选中、尚未高亮）的颜色 */
@@ -337,6 +371,8 @@ export interface SelectionProps {
    *
    * Legacy：优先使用 `markerColors.highlight.fill`。
    * 同时传入两者时 `markerColors` 优先。
+   *
+   * @deprecated 请使用 `markerStyle`（CSSProperties），新数据会将其快照到 range.markerStyle。
    */
   highlightColor?: string;
   /**
@@ -344,6 +380,8 @@ export interface SelectionProps {
    *
    * Legacy：优先使用 `markerColors.selection.fill` 或 `newSelectionOptions.color`。
    * 同时传入两者时 `markerColors` / `newSelectionOptions` 优先。
+   *
+   * @deprecated 请使用 `selectionStyle`（CSSProperties），新数据会将其快照到 range.selectionStyle。
    */
   selectionColor?: string;
   /** 自定义类名 */
@@ -374,6 +412,8 @@ export interface SelectionProps {
   /**
    * 新绘制选区（活跃选区、尚未高亮）的选项集合。
    * 目前支持 `color`，未来可在该对象上扩展更多属性。
+   *
+   * @deprecated 请使用 `selectionStyle`（CSSProperties）。
    */
   newSelectionOptions?: NewSelectionOptions;
   /**
@@ -385,10 +425,25 @@ export interface SelectionProps {
    */
   renderHandle?: (props: HandleRenderProps) => ReactNode;
   /**
+   * 持久高亮（已确认 range）的样式。会作为默认值用于新创建的 range，
+   * 并原样快照到 `SelectionRange.markerStyle` / `LinkedSelectionRange.markerStyle`。
+   * 旧数据如已存储 markerStyle，则优先使用存储值，不受后续 props 变化影响。
+   */
+  markerStyle?: CSSProperties;
+  /**
+   * 活跃选区（尚未高亮）的样式。用于渲染当前正在拖选的文本高亮，
+   * 并原样快照到 `SelectionRange.selectionStyle` / `LinkedSelectionRange.selectionStyle`。
+   * 活跃选区未确认前始终使用当前 props 值；确认后变为持久数据的一部分。
+   */
+  selectionStyle?: CSSProperties;
+  /**
    * 标记颜色配置（活跃选区、高亮、选中高亮、手柄）。
    *
    * 各字段可选；不传的字段回退到 CSS 默认。
    * 与 legacy 颜色 props 共存时，`markerColors` 优先。
+   *
+   * @deprecated 请使用 `markerStyle` / `selectionStyle`。为兼容旧数据，
+   * 新 range 仍会将 markerColors 转换为等价的 CSSProperties 快照。
    */
   markerColors?: MarkerColors;
 }

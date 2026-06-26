@@ -25,10 +25,14 @@ export type {
   HandleRenderProps,
   LinkedSelectionData,
   LinkedSelectionRange,
+  /** @deprecated 请使用 markerStyle / selectionStyle（CSSProperties）替代旧的颜色配置。 */
   MarkerColorStyle,
+  /** @deprecated 请使用 markerStyle / selectionStyle（CSSProperties）替代旧的颜色配置。 */
   MarkerColors,
+  /** @deprecated 请使用 markerStyle / selectionStyle（CSSProperties）替代旧的颜色配置。 */
   MarkerStrokeStyle,
   MousePosition,
+  /** @deprecated 请使用 selectionStyle（CSSProperties）替代 newSelectionOptions.color。 */
   NewSelectionOptions,
   OverlayRect,
   OverlayRectType,

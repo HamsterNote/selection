@@ -4,7 +4,6 @@ import type {
   HandleRenderProps,
   LinkedSelectionData,
   LinkedSelectionRange,
-  MarkerColors,
   MousePosition,
   OverlayRectType,
   SelectionRange,
@@ -302,52 +301,61 @@ export default function App() {
     };
   }, [customHandleMode]);
 
-  // ─────────────────────────────────────────────────────────────
-  // Feature 3：标记颜色预设方案
-  // ─────────────────────────────────────────────────────────────
-  const markerColors = useMemo<MarkerColors | undefined>(() => {
+  const { markerStyle, selectionStyle } = useMemo<{
+    markerStyle: React.CSSProperties | undefined;
+    selectionStyle: React.CSSProperties | undefined;
+  }>(() => {
     switch (colorPreset) {
       case 'blue':
         return {
-          selection: { fill: 'rgba(64,156,255,0.35)' },
-          highlight: {
-            fill: 'rgba(64,156,255,0.25)',
-            stroke: { color: 'rgba(64,156,255,0.6)', width: 1 },
+          markerStyle: {
+            backgroundColor: 'rgba(64,156,255,0.4)',
+            borderColor: '#1c7ed6',
+            borderWidth: 2,
+            borderStyle: 'solid',
           },
-          selectedHighlight: {
-            fill: 'rgba(64,156,255,0.4)',
-            stroke: { color: '#1c7ed6', width: 2 },
+          selectionStyle: {
+            backgroundColor: 'rgba(64,156,255,0.35)',
+            borderColor: 'rgba(64,156,255,0.6)',
+            borderWidth: 1,
+            borderStyle: 'solid',
           },
-          handle: { fill: '#1c7ed6', stroke: { color: '#fff', width: 2 } },
         };
       case 'green':
         return {
-          selection: { fill: 'rgba(64,192,87,0.35)' },
-          highlight: {
-            fill: 'rgba(64,192,87,0.25)',
-            stroke: { color: 'rgba(64,192,87,0.6)', width: 1 },
+          markerStyle: {
+            backgroundColor: 'rgba(64,192,87,0.4)',
+            borderColor: '#2f9e44',
+            borderWidth: 2,
+            borderStyle: 'solid',
           },
-          selectedHighlight: {
-            fill: 'rgba(64,192,87,0.4)',
-            stroke: { color: '#2f9e44', width: 2 },
+          selectionStyle: {
+            backgroundColor: 'rgba(64,192,87,0.35)',
+            borderColor: 'rgba(64,192,87,0.6)',
+            borderWidth: 1,
+            borderStyle: 'solid',
           },
-          handle: { fill: '#2f9e44', stroke: { color: '#fff', width: 2 } },
         };
       case 'purple':
         return {
-          selection: { fill: 'rgba(156,81,255,0.35)' },
-          highlight: {
-            fill: 'rgba(156,81,255,0.25)',
-            stroke: { color: 'rgba(156,81,255,0.6)', width: 1 },
+          markerStyle: {
+            backgroundColor: 'rgba(156,81,255,0.4)',
+            borderColor: '#7048e8',
+            borderWidth: 2,
+            borderStyle: 'solid',
           },
-          selectedHighlight: {
-            fill: 'rgba(156,81,255,0.4)',
-            stroke: { color: '#7048e8', width: 2 },
+          selectionStyle: {
+            backgroundColor: 'rgba(156,81,255,0.35)',
+            borderColor: 'rgba(156,81,255,0.6)',
+            borderWidth: 1,
+            borderStyle: 'solid',
           },
-          handle: { fill: '#7048e8', stroke: { color: '#fff', width: 2 } },
         };
       default:
-        return undefined;
+        return {
+          markerStyle: { backgroundColor: 'rgba(255, 213, 79, 0.4)' },
+          selectionStyle: { backgroundColor: 'rgba(255, 105, 180, 0.45)' },
+        };
     }
   }, [colorPreset]);
 
@@ -478,11 +486,11 @@ export default function App() {
           ))}
         </div>
 
-        {/* Feature 3：颜色预设 */}
+        {/* Feature 3：样式预设 */}
         <div style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 13, marginRight: 8 }}>
-            <strong>markerColors</strong>
-            <span style={{ color: '#888' }}> — 颜色预设：</span>
+            <strong>markerStyle / selectionStyle</strong>
+            <span style={{ color: '#888' }}> — 样式预设：</span>
           </span>
           {(['default', 'blue', 'green', 'purple'] as const).map((preset) => (
             <label key={preset} style={{ marginRight: 12, fontSize: 13, cursor: 'pointer' }}>
@@ -497,6 +505,9 @@ export default function App() {
             </label>
           ))}
         </div>
+        <p style={{ fontSize: 12, color: '#888', margin: '0 0 8px' }}>
+          提示：先创建一个高亮，再切换预设颜色，旧高亮会保持原先快照进数据的样式，只有新高亮才使用新预设。
+        </p>
 
         {/* Feature 4：Overlay Rect Type */}
         <div>
@@ -619,10 +630,10 @@ export default function App() {
             onSelectionStart={makeSelectionStart(PAGE_A)}
             onSelectionEnd={makeSelectionEnd(PAGE_A)}
             renderHandle={renderHandle}
-            markerColors={markerColors}
+            markerStyle={markerStyle}
+            selectionStyle={selectionStyle}
             popover={linkedPopover}
             selectionPopover={linkedSelectionPopover}
-            newSelectionOptions={{ color: 'rgba(244,114,182,0.45)' }}
             overlayRectType={overlayRectType}
           >
             {INTRO_A}
@@ -707,10 +718,10 @@ export default function App() {
             onSelectionStart={makeSelectionStart(PAGE_B)}
             onSelectionEnd={makeSelectionEnd(PAGE_B)}
             renderHandle={renderHandle}
-            markerColors={markerColors}
+            markerStyle={markerStyle}
+            selectionStyle={selectionStyle}
             popover={linkedPopover}
             selectionPopover={linkedSelectionPopover}
-            newSelectionOptions={{ color: 'rgba(244,114,182,0.45)' }}
             overlayRectType={overlayRectType}
           >
             {INTRO_B}
@@ -840,7 +851,8 @@ export default function App() {
               onHighlight={handleLegacyHighlight}
               onUpdateRange={handleLegacyUpdateRange}
               renderHandle={renderHandle}
-              markerColors={markerColors}
+              markerStyle={markerStyle}
+              selectionStyle={selectionStyle}
               popover={
                 <button
                   type="button"
@@ -879,7 +891,6 @@ export default function App() {
                   高亮
                 </button>
               }
-              newSelectionOptions={{ color: 'rgba(244,114,182,0.45)' }}
               overlayRectType={overlayRectType}
             >
               {LEGACY_TEXT}
@@ -982,6 +993,34 @@ export default function App() {
                         </strong>
                       )}
                     </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      <div
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: 3,
+                          backgroundColor:
+                            typeof r.markerStyle?.backgroundColor === 'string'
+                              ? r.markerStyle.backgroundColor
+                              : '#ccc',
+                          border: '1px solid #ccc',
+                        }}
+                        title={`markerStyle: ${JSON.stringify(r.markerStyle ?? null)}\nselectionStyle: ${JSON.stringify(r.selectionStyle ?? null)}`}
+                      />
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: '#888',
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                          maxWidth: 120,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        markerStyle: {JSON.stringify(r.markerStyle ?? null)}
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleLinkedDeleteRange(r.id)}
@@ -1063,7 +1102,34 @@ export default function App() {
                           >
                             {r.overlayRectType ?? 'px'}: {JSON.stringify(r.rects ?? [])}
                           </span>
+                          <span
+                            style={{
+                              display: 'block',
+                              fontSize: 10,
+                              color: '#888',
+                              marginTop: 2,
+                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                            }}
+                          >
+                            markerStyle: {JSON.stringify(r.markerStyle ?? null)} | selectionStyle:{' '}
+                            {JSON.stringify(r.selectionStyle ?? null)}
+                          </span>
                         </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <div
+                            style={{
+                              width: 14,
+                              height: 14,
+                              borderRadius: 3,
+                              backgroundColor:
+                                typeof r.markerStyle?.backgroundColor === 'string'
+                                  ? r.markerStyle.backgroundColor
+                                  : '#ccc',
+                              border: '1px solid #ccc',
+                            }}
+                            title={`markerStyle: ${JSON.stringify(r.markerStyle ?? null)}\nselectionStyle: ${JSON.stringify(r.selectionStyle ?? null)}`}
+                          />
+                        </div>
                         <button
                           type="button"
                           onClick={() => handleLegacyDeleteRange(r.id)}
