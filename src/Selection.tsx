@@ -1130,9 +1130,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
   // 没有选中、或选中的 id 在 persistedRects 中找不到时为 null（不渲染 Popover）。
   const popoverAnchor = (() => {
-    // 拖拽 range handle 期间隐藏 Popover，避免遮挡视线或位置跳动。
-    // 联动模式下，同一次拖拽在其它关联容器中也应隐藏。
-    if (dragHandle || isLinkedSelectedRangeDragging) return null;
+    // 拖拽 range handle 或鼠标选择文本期间隐藏 Popover，避免遮挡视线或位置跳动。
+    // 联动模式下，同一次拖拽/选择在其它关联容器中也应隐藏。
+    if (dragHandle || isLinkedSelectedRangeDragging || isSelectingText || isLinkedSelectingText) return null;
     if (!currentSelectedRangeId || !popover) return null;
     const entry = persistedRects.find((p) => p.id === currentSelectedRangeId);
     if (!entry) return null;
@@ -1155,9 +1155,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 计算「选区 Popover」锚点：活跃选区（未高亮）最顶部矩形的水平中点 + 顶边。
   // 与 popoverAnchor 互斥（活跃选区时 selectedRangeId 必为 null）。
   const selectionPopoverAnchor = (() => {
-    // 拖拽 range handle 期间隐藏选区 Popover，避免遮挡视线或位置跳动。
-    // 联动模式下，同一次拖拽在其它关联容器中也应隐藏。
-    if (dragHandle || isLinkedActiveSelectionDragging) return null;
+    // 拖拽 range handle 或鼠标选择文本期间隐藏选区 Popover，避免遮挡视线或位置跳动。
+    // 联动模式下，同一次拖拽/选择在其它关联容器中也应隐藏。
+    if (dragHandle || isLinkedActiveSelectionDragging || isSelectingText || isLinkedSelectingText) return null;
     if (!hasSelection || !selectionPopover || rects.length === 0) {
       return null;
     }

@@ -384,4 +384,97 @@ describe('Selection overlayRectType', () => {
     expect(popover).toBeInTheDocument();
     expect(popover).toHaveStyle({ left: '80px', top: '30px' });
   });
+
+  // S1 — active selection popover hides during drag-select and reappears after mouseup
+  it('S1.active-popover.hides-during-drag-select-and-reappears-after-mouseup', () => {
+    // Given: render with selectionPopover, establish active selection
+    mockGeometry();
+    const { container } = render(
+      <Selection ranges={[]} overlayRectType="percent" selectionPopover={<div data-testid="active-popover">Active</div>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+
+    // When: establish active selection via selectOnly
+    selectOnly(container);
+
+    // Then: popover is in document with correct percent positioning
+    const popoverBefore = container.querySelector('.hsn-selection-popover');
+    expect(popoverBefore).toBeInTheDocument();
+    expect(popoverBefore).toHaveStyle({ left: '20%', top: '10%' });
+
+    // When: fire mouseDown on container outside active rect (180,30 is outside TEXT_RECT 40,30,80,24)
+    act(() => {
+      fireEvent.mouseDown(host, { clientX: 180, clientY: 30 });
+    });
+
+    // Then: popover should hide during drag-select
+    const popoverDuringDrag = container.querySelector('.hsn-selection-popover');
+    expect(popoverDuringDrag).not.toBeInTheDocument();
+
+    // When: fire mouseUp on document
+    act(() => {
+      fireEvent.mouseUp(document, { target: host, clientX: 200, clientY: 40 });
+    });
+
+    // Then: popover should reappear after mouseup
+    const popoverAfter = container.querySelector('.hsn-selection-popover');
+    expect(popoverAfter).toBeInTheDocument();
+  });
+
+  // S2 — clicking inside selectionPopover does not hide it
+  it('S2.active-popover.clicking-inside-popover-does-not-hide', () => {
+    // Given: render with selectionPopover as a button, establish active selection
+    mockGeometry();
+    const { container } = render(
+      <Selection ranges={[]} overlayRectType="percent" selectionPopover={<button type="button" data-testid="active-popover-btn">Action</button>}>
+        {content()}
+      </Selection>,
+    );
+
+    // When: establish active selection via selectOnly
+    selectOnly(container);
+
+    // Then: popover is in document
+    const popover = container.querySelector('.hsn-selection-popover');
+    expect(popover).toBeInTheDocument();
+
+    // When: query popover element and fire mouseDown on it
+    const popoverBtn = container.querySelector('[data-testid="active-popover-btn"]');
+    expect(popoverBtn).toBeInTheDocument();
+    act(() => {
+      fireEvent.mouseDown(popoverBtn!);
+    });
+
+    // Then: popover should still be in document (click inside popover doesn't hide)
+    const popoverAfterClick = container.querySelector('.hsn-selection-popover');
+    expect(popoverAfterClick).toBeInTheDocument();
+  });
+
+  // S3 — persisted range popover hides during new text-selection drag
+  it('S3.persisted-popover.hides-during-new-text-selection-drag', () => {
+    // Given: render with persisted range and popover
+    mockGeometry();
+    const { container } = render(
+      <Selection ranges={[percentRange()]} selectedRangeId="stored-percent" overlayRectType="percent" popover={<div data-testid="persisted-popover">Popover</div>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+
+    // Then: popover is in document with correct percent positioning
+    const popoverBefore = container.querySelector('.hsn-selection-popover');
+    expect(popoverBefore).toBeInTheDocument();
+    expect(popoverBefore).toHaveStyle({ left: '20%', top: '10%' });
+
+    // When: fire mouseDown on container outside active rect
+    act(() => {
+      fireEvent.mouseDown(host, { clientX: 180, clientY: 30 });
+    });
+
+    // Then: popover should hide during drag-select
+    const popoverDuringDrag = container.querySelector('.hsn-selection-popover');
+    expect(popoverDuringDrag).not.toBeInTheDocument();
+  });
 });
