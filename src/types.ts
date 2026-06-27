@@ -187,7 +187,11 @@ export type SelectionHandleType = 'start' | 'end';
 /** 手柄所属对象：active-selection 为活跃选区，persisted-range 为已确认的高亮 range */
 export type SelectionHandleOwner = 'active-selection' | 'persisted-range';
 
-/** 手柄在容器坐标系中的位置（像素，相对容器左上角） */
+/**
+ * 手柄在容器坐标系中的位置。
+ * - 当 effective overlay rect type 为 `'px'` 时，值为像素坐标（相对容器左上角）；
+ * - 当 effective overlay rect type 为 `'percent'` 时，值为 0-100 百分比坐标（相对容器宽高）。
+ */
 export interface HandlePosition {
   x: number;
   y: number;
@@ -208,8 +212,14 @@ export interface HandleRenderProps {
   owner: SelectionHandleOwner;
   /** 当 owner 为 persisted-range 时对应的 range id；active-selection 时为 null */
   rangeId: string | null;
-  /** 手柄在容器坐标系中的位置 */
+  /**
+   * 手柄在容器坐标系中的位置。
+   * 单位由 `positionUnit` 指定：当 overlay rect type 为 'px' 时为像素坐标，
+   * 当 overlay rect type 为 'percent' 时为 0-100 百分比坐标。
+   */
   position: HandlePosition;
+  /** 当前 position 的单位：'px' 表示像素，'percent' 表示 0-100 百分比 */
+  positionUnit: 'px' | 'percent';
   /** 当前手柄是否正在被拖拽 */
   isDragging: boolean;
   /**
@@ -222,7 +232,11 @@ export interface HandleRenderProps {
   ariaLabel: string;
   /** 推荐的 className（兼容默认样式表）；完全自定义时可忽略 */
   className: string;
-  /** 推荐的内联样式（含绝对定位 + 可选默认颜色）；外部组件应合并到根元素 */
+  /**
+   * 推荐的内联样式（含绝对定位 + 可选默认颜色）；外部组件应合并到根元素。
+   * - 当 overlay rect type 为 'px' 时，`left`/`top` 为数值型像素值；
+   * - 当 overlay rect type 为 'percent' 时，`left`/`top` 为百分比字符串（如 `'50%'`）。
+   */
   style: CSSProperties;
 }
 

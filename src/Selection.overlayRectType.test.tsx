@@ -4,7 +4,7 @@ import { fireEvent, render, act } from '@testing-library/react';
 import { createRef } from 'react';
 import { flushSync } from 'react-dom';
 import { Selection } from './Selection';
-import type { LinkedSelectionData, SelectionRange, SelectionRef } from './types';
+import type { LinkedSelectionData, SelectionRange, SelectionRef, HandleRenderProps } from './types';
 
 type LinkedItemWithRectType = LinkedSelectionData['items'][number] & { readonly overlayRectType?: 'px' | 'percent' };
 
@@ -66,6 +66,17 @@ function selectAndHighlight(host: HTMLElement, ref: React.RefObject<SelectionRef
     fireEvent.mouseUp(document, { target: container, clientX: 90, clientY: 42 });
     flushSync(() => {});
     ref.current?.highlight();
+  });
+}
+
+function selectOnly(host: HTMLElement): void {
+  const container = selectionContainer(host);
+  installNativeSelection(container);
+  act(() => {
+    fireEvent.mouseDown(container, { clientX: 40, clientY: 30 });
+    document.dispatchEvent(new Event('selectionchange'));
+    fireEvent.mouseUp(document, { target: container, clientX: 90, clientY: 42 });
+    flushSync(() => {});
   });
 }
 
@@ -210,5 +221,167 @@ describe('Selection overlayRectType', () => {
 
     expect(container.querySelectorAll('.hsn-selection-percent-rect')).toHaveLength(1);
     expect(container.querySelectorAll('svg rect[data-range-id="stored-percent"]')).toHaveLength(0);
+  });
+
+  it('selection.percent-handles.persisted-uses-percent-positioning', () => {
+    // Given: percentRange({ x:10, y:10, w:20, h:8 }), start handle at (10, 14), end at (30, 14)
+    mockGeometry();
+    const captured: HandleRenderProps[] = [];
+    const renderHandle = (props: HandleRenderProps) => {
+      captured.push(props);
+      return <button type="button" data-testid={`handle-${props.type}`} style={props.style} />;
+    };
+
+    // When: render persisted percent range with renderHandle
+    const { container } = render(
+      <Selection
+        ranges={[percentRange()]}
+        selectedRangeId="stored-percent"
+        overlayRectType="percent"
+        renderHandle={renderHandle}
+      >
+        {content()}
+      </Selection>,
+    );
+
+    // Then: two handles rendered with percent style strings and positionUnit='percent'
+    const handles = container.querySelectorAll('button[data-testid^="handle-"]');
+    expect(handles).toHaveLength(2);
+
+    const start = captured.find((p) => p.type === 'start');
+    const end = captured.find((p) => p.type === 'end');
+    expect(start).toBeDefined();
+    expect(end).toBeDefined();
+
+    expect(start!.style.left).toBe('10%');
+    expect(start!.style.top).toBe('14%');
+    expect(start!.position).toEqual({ x: 10, y: 14 });
+    expect(start!.positionUnit).toBe('percent');
+
+    expect(end!.style.left).toBe('30%');
+    expect(end!.style.top).toBe('14%');
+    expect(end!.position).toEqual({ x: 30, y: 14 });
+    expect(end!.positionUnit).toBe('percent');
+  });
+
+  it('selection.percent-popover.persisted-uses-percent-anchor', () => {
+    // Given: percentRange rect { x:10, y:10, w:20, h:8 }, popover anchor = (x+w/2, y) = (20, 10)
+    mockGeometry();
+
+    // When: render persisted percent range with popover
+    const { container } = render(
+      <Selection
+        ranges={[percentRange()]}
+        selectedRangeId="stored-percent"
+        overlayRectType="percent"
+        popover={<div data-testid="persisted-popover">Popover</div>}
+      >
+        {content()}
+      </Selection>,
+    );
+
+    // Then: .hsn-selection-popover positioned with percent strings
+    const popover = container.querySelector('.hsn-selection-popover');
+    expect(popover).toBeInTheDocument();
+    expect(popover).toHaveStyle({ left: '20%', top: '10%' });
+  });
+
+  it('selection.percent-active-handles-and-selection-popover.use-percent-anchor', () => {
+    // Given: native selection with TEXT_RECT(40,30,80,24), CONTAINER(400,300)
+    // Active percent rects: x=10%, y=10%, w=20%, h=8%
+    // Start handle: (10, 14), end handle: (30, 14)
+    // selectionPopover anchor: (x+w/2, y) = (20, 10)
+    mockGeometry();
+    const captured: HandleRenderProps[] = [];
+    const renderHandle = (props: HandleRenderProps) => {
+      captured.push(props);
+      return <button type="button" data-testid={`handle-${props.type}`} style={props.style} />;
+    };
+
+    const { container } = render(
+      <Selection
+        ranges={[]}
+        overlayRectType="percent"
+        selectionPopover={<div data-testid="active-popover">Active</div>}
+        renderHandle={renderHandle}
+      >
+        {content()}
+      </Selection>,
+    );
+
+    // When: activate native selection without highlight()
+    selectOnly(container);
+
+    // Then: active handles have percent styles
+    const handles = container.querySelectorAll('button[data-testid^="handle-"]');
+    expect(handles).toHaveLength(2);
+
+    const start = captured.find((p) => p.type === 'start' && p.owner === 'active-selection');
+    const end = captured.find((p) => p.type === 'end' && p.owner === 'active-selection');
+    expect(start).toBeDefined();
+    expect(end).toBeDefined();
+
+    expect(start!.style.left).toBe('10%');
+    expect(start!.style.top).toBe('14%');
+    expect(start!.position).toEqual({ x: 10, y: 14 });
+    expect(start!.positionUnit).toBe('percent');
+
+    expect(end!.style.left).toBe('30%');
+    expect(end!.style.top).toBe('14%');
+    expect(end!.position).toEqual({ x: 30, y: 14 });
+    expect(end!.positionUnit).toBe('percent');
+
+    // Then: selectionPopover anchored with percent strings
+    const popover = container.querySelector('.hsn-selection-popover');
+    expect(popover).toBeInTheDocument();
+    expect(popover).toHaveStyle({ left: '20%', top: '10%' });
+  });
+
+  it('selection.px-handles-and-popover.keep-pixel-positioning', () => {
+    // Given: pxRange({ x:40, y:30, w:80, h:24 }), start handle at (40, 42), end at (120, 42)
+    // Popover anchor: (x+w/2, y) = (80, 30)
+    mockGeometry();
+    const captured: HandleRenderProps[] = [];
+    const renderHandle = (props: HandleRenderProps) => {
+      captured.push(props);
+      return <button type="button" data-testid={`handle-${props.type}`} style={props.style} />;
+    };
+
+    // When: render persisted px range with renderHandle and popover
+    const { container } = render(
+      <Selection
+        ranges={[pxRange()]}
+        selectedRangeId="stored-px"
+        overlayRectType="px"
+        renderHandle={renderHandle}
+        popover={<div data-testid="persisted-popover">Popover</div>}
+      >
+        {content()}
+      </Selection>,
+    );
+
+    // Then: handles have pixel style strings and positionUnit='px'
+    const handles = container.querySelectorAll('button[data-testid^="handle-"]');
+    expect(handles).toHaveLength(2);
+
+    const start = captured.find((p) => p.type === 'start');
+    const end = captured.find((p) => p.type === 'end');
+    expect(start).toBeDefined();
+    expect(end).toBeDefined();
+
+    expect(start!.style.left).toBe('40px');
+    expect(start!.style.top).toBe('42px');
+    expect(start!.position).toEqual({ x: 40, y: 42 });
+    expect(start!.positionUnit).toBe('px');
+
+    expect(end!.style.left).toBe('120px');
+    expect(end!.style.top).toBe('42px');
+    expect(end!.position).toEqual({ x: 120, y: 42 });
+    expect(end!.positionUnit).toBe('px');
+
+    // Then: popover positioned with pixel strings
+    const popover = container.querySelector('.hsn-selection-popover');
+    expect(popover).toBeInTheDocument();
+    expect(popover).toHaveStyle({ left: '80px', top: '30px' });
   });
 });

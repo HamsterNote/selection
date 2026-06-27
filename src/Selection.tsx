@@ -441,7 +441,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     linkedDraggingRange.id === currentSelectedRangeId;
   const isLinkedSelectingText = linkedContext?.data.selectingText ?? false;
   const selectRange = linkedContext ? onLinkedSelectRange : onSelectRange;
-  const [selectionPopoverReady, setSelectionPopoverReady] = useState(false);
   // 鼠标驱动的新文本选择手势进行中：从 mousedown 开始，到 mouseup 或选区消失结束。
   // 该状态期间隐藏活跃选区手柄，避免手柄干扰拖选；点击已有活跃选区 rect 内部不进入此状态。
   const [isSelectingText, setIsSelectingText] = useState(false);
@@ -684,6 +683,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
     const handleMouseDown = (e: MouseEvent) => {
       const target = e.target;
+      if (target instanceof Element && target.closest('.hsn-selection-handle')) {
+        e.preventDefault();
+        return;
+      }
       if (target instanceof Node && selectionPopoverRef.current?.contains(target)) {
         return;
       }
@@ -710,7 +713,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       // 开始新的鼠标选择手势：隐藏活跃选区手柄直到 mouseup。
       setIsSelectingText(true);
       setLinkedSelectingText(true);
-      setSelectionPopoverReady(false);
       if (!onSelectionStart) return;
       const selection = window.getSelection();
       if (!selection) return;
@@ -723,7 +725,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       if (target instanceof Node && selectionPopoverRef.current?.contains(target)) {
         return;
       }
-      setSelectionPopoverReady(false);
       setIsSelectingText(false);
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
       const range = selection.getRangeAt(0);
@@ -737,7 +738,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       // 否则 page-a 的 document 监听会在 page-b 前先清理共享状态，触发父级重渲染，
       // 导致 page-b 的 mouseup 监听在同一事件分发中被移除，进而漏掉 end 事件。
       setLinkedSelectingText(false);
-      setSelectionPopoverReady(true);
       onSelectionEnd?.({ x: e.clientX, y: e.clientY }, selection);
     };
 
@@ -753,7 +753,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
   useEffect(() => {
     if (!hasSelection) {
-      setSelectionPopoverReady(false);
       setIsSelectingText(false);
       setLinkedSelectingText(false);
     }
@@ -869,6 +868,22 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   useEffect(() => {
     if (!currentSelectedRangeId || !selectRange) return;
     const handleDocMouseDown = (e: MouseEvent) => {
+      if (dragHandleRef.current || dragPersistedIdRef.current) return;
+      if (e.target instanceof Element && e.target.closest('.hsn-selection-handle')) return;
+      const selectedEntry = persistedRects.find((entry) => entry.id === currentSelectedRangeId);
+      if (selectedEntry && selectedEntry.rects.length > 0) {
+        const first = selectedEntry.rects[0];
+        const last = selectedEntry.rects[selectedEntry.rects.length - 1];
+        const container = containerRef.current;
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const x = e.clientX - containerRect.left;
+          const y = e.clientY - containerRect.top;
+          const nearStartHandle = Math.hypot(x - first.x, y - (first.y + first.height / 2)) <= 24;
+          const nearEndHandle = Math.hypot(x - (last.x + last.width), y - (last.y + last.height / 2)) <= 24;
+          if (nearStartHandle || nearEndHandle) return;
+        }
+      }
       if (e.target instanceof Element && e.target.closest('.hsn-selection-popover')) return;
       const popoverEl = popoverRef.current;
       if (popoverEl && e.target instanceof Node && popoverEl.contains(e.target)) return;
@@ -878,7 +893,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     return () => {
       document.removeEventListener('mousedown', handleDocMouseDown);
     };
-  }, [currentSelectedRangeId, selectRange]);
+  }, [currentSelectedRangeId, persistedRects, selectRange]);
 
   /**
    * 手柄 pointerdown：进入拖动模式。
@@ -1083,6 +1098,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       sel.addRange(newRange);
     };
     const onUp = () => {
+      const persistedId = dragPersistedIdRef.current;
       if (dragHandleElRef.current) {
         dragHandleElRef.current.style.pointerEvents = '';
         dragHandleElRef.current = null;
@@ -1094,6 +1110,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       dragAnchorRef.current = -1;
       setDragHandle(null);
       setDragPersistedId(null);
+      if (persistedId) {
+        selectRange?.(persistedId);
+      }
 
       // 清除联动模式共享拖拽状态，让关联容器重新显示手柄/Popover。
       if (linkedDataRef.current) {
@@ -1106,7 +1125,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
     };
-  }, [dragHandle, legacyOverlayRectType, setLinkedDraggingRange, styleSnapshot]);
+  }, [dragHandle, legacyOverlayRectType, selectRange, setLinkedDraggingRange, styleSnapshot]);
 
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
   // 没有选中、或选中的 id 在 persistedRects 中找不到时为 null（不渲染 Popover）。
@@ -1116,12 +1135,21 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     if (dragHandle || isLinkedSelectedRangeDragging) return null;
     if (!currentSelectedRangeId || !popover) return null;
     const entry = persistedRects.find((p) => p.id === currentSelectedRangeId);
-    if (!entry || entry.rects.length === 0) return null;
-    let top = entry.rects[0];
-    for (const r of entry.rects) {
+    if (!entry) return null;
+    const anchorRects = entry.overlayRectType === 'percent' ? entry.percentRects : entry.rects;
+    if (anchorRects.length === 0) return null;
+    let top = anchorRects[0];
+    for (const r of anchorRects) {
       if (r.y < top.y) top = r;
     }
-    return { x: top.x + top.width / 2, y: top.y };
+    return { x: top.x + top.width / 2, y: top.y, overlayRectType: entry.overlayRectType };
+  })();
+
+  const activeSelectionOverlayRectType = linkedContext ? linkedOverlayRectType : legacyOverlayRectType;
+  const activePercentRects = (() => {
+    const container = containerRef.current;
+    if (!container || activeSelectionOverlayRectType !== 'percent') return [];
+    return pixelRectsToPercentRects(rects, container);
   })();
 
   // 计算「选区 Popover」锚点：活跃选区（未高亮）最顶部矩形的水平中点 + 顶边。
@@ -1130,19 +1158,28 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     // 拖拽 range handle 期间隐藏选区 Popover，避免遮挡视线或位置跳动。
     // 联动模式下，同一次拖拽在其它关联容器中也应隐藏。
     if (dragHandle || isLinkedActiveSelectionDragging) return null;
-    if (!selectionPopoverReady || !hasSelection || !selectionPopover || rects.length === 0) {
+    if (!hasSelection || !selectionPopover || rects.length === 0) {
       return null;
     }
-    let top = rects[0];
-    for (const r of rects) {
+    const anchorRects = activeSelectionOverlayRectType === 'percent' ? activePercentRects : rects;
+    if (anchorRects.length === 0) return null;
+    let top = anchorRects[0];
+    for (const r of anchorRects) {
       if (r.y < top.y) top = r;
     }
-    return { x: top.x + top.width / 2, y: top.y };
+    return { x: top.x + top.width / 2, y: top.y, overlayRectType: activeSelectionOverlayRectType };
   })();
 
+  function buildPositionStyleValue(value: number, overlayRectType: OverlayRectType): string {
+    return overlayRectType === 'percent' ? `${value}%` : `${value}px`;
+  }
+
   // 构建手柄的内联样式：绝对定位 + 从 owner 样式推导的颜色。
-  const buildHandleStyle = (left: number, top: number, ownerStyle: CSSProperties | undefined): React.CSSProperties => {
-    const s: React.CSSProperties = { left, top };
+  const buildHandleStyle = (left: number, top: number, overlayRectType: OverlayRectType, ownerStyle: CSSProperties | undefined): React.CSSProperties => {
+    const s: React.CSSProperties = {
+      left: buildPositionStyleValue(left, overlayRectType),
+      top: buildPositionStyleValue(top, overlayRectType),
+    };
     const visual = deriveHandleVisualStyle(ownerStyle, legacyHandleFallback);
     if (visual.background !== undefined) s.background = visual.background;
     if (visual.borderColor !== undefined) {
@@ -1155,13 +1192,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     return s;
   };
 
-  const activeSelectionOverlayRectType = linkedContext ? linkedOverlayRectType : legacyOverlayRectType;
-  const activePercentRects = (() => {
-    const container = containerRef.current;
-    if (!container || activeSelectionOverlayRectType !== 'percent') return [];
-    return pixelRectsToPercentRects(rects, container);
-  })();
-
   // 渲染单个手柄：renderHandle 优先，返回 null 则隐藏（不留 fallback），否则用默认 <button>。
   const renderSingleHandle = (
     type: SelectionHandleType,
@@ -1173,12 +1203,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     ariaLabel: string,
     className: string,
     style: React.CSSProperties,
+    positionUnit: OverlayRectType = legacyOverlayRectType,
   ) => {
     const handleProps: HandleRenderProps = {
       type,
       owner,
       rangeId,
       position,
+      positionUnit,
       isDragging,
       onPointerDown,
       ariaLabel,
@@ -1197,6 +1229,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         tabIndex={-1}
         aria-label={ariaLabel}
         style={style}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
         onPointerDown={onPointerDown}
       />
     );
@@ -1328,7 +1364,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         <div
           ref={popoverRef}
           className="hsn-selection-popover"
-          style={{ left: popoverAnchor.x, top: popoverAnchor.y }}
+          style={{
+            left: buildPositionStyleValue(popoverAnchor.x, popoverAnchor.overlayRectType),
+            top: buildPositionStyleValue(popoverAnchor.y, popoverAnchor.overlayRectType),
+          }}
         >
           {popover}
         </div>
@@ -1342,7 +1381,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         <div
           ref={selectionPopoverRef}
           className="hsn-selection-popover"
-          style={{ left: selectionPopoverAnchor.x, top: selectionPopoverAnchor.y }}
+          style={{
+            left: buildPositionStyleValue(selectionPopoverAnchor.x, selectionPopoverAnchor.overlayRectType),
+            top: buildPositionStyleValue(selectionPopoverAnchor.y, selectionPopoverAnchor.overlayRectType),
+          }}
         >
           {selectionPopover}
         </div>
@@ -1362,8 +1404,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         !dragHandle &&
         !isLinkedActiveSelectionDragging &&
         (() => {
-          const first = rects[0];
-          const last = rects[rects.length - 1];
+          const activeHandleRects = activeSelectionOverlayRectType === 'percent' ? activePercentRects : rects;
+          if (activeHandleRects.length === 0) return null;
+          const first = activeHandleRects[0];
+          const last = activeHandleRects[activeHandleRects.length - 1];
           const isDraggingActive = !!(dragHandle && !dragPersistedId);
           const showStartHandle =
             !linkedContext ||
@@ -1385,7 +1429,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('start'),
                   '拖动以调整选区起点',
                   `hsn-selection-handle hsn-selection-handle--start${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(first.x, first.y + first.height / 2, activeSelectionStyle),
+                  buildHandleStyle(first.x, first.y + first.height / 2, activeSelectionOverlayRectType, activeSelectionStyle),
+                  activeSelectionOverlayRectType,
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -1397,7 +1442,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('end'),
                   '拖动以调整选区终点',
                   `hsn-selection-handle hsn-selection-handle--end${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(last.x + last.width, last.y + last.height / 2, activeSelectionStyle),
+                  buildHandleStyle(last.x + last.width, last.y + last.height / 2, activeSelectionOverlayRectType, activeSelectionStyle),
+                  activeSelectionOverlayRectType,
                 )}
             </>
           );
@@ -1418,9 +1464,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             if (!showStartHandle && !showEndHandle) return null;
           }
           const entry = persistedRects.find((p) => p.id === currentSelectedRangeId);
-          if (!entry || entry.rects.length === 0) return null;
+          if (!entry) return null;
+          const rs = entry.overlayRectType === 'percent' ? entry.percentRects : entry.rects;
+          if (rs.length === 0) return null;
           const persistedHandleStyle = getEffectiveMarkerStyle(entry.markerStyle, styleInput);
-          const rs = entry.rects;
           const first = rs[0];
           const last = rs[rs.length - 1];
           const isDraggingPersisted = !!(dragHandle && dragPersistedId === currentSelectedRangeId);
@@ -1436,7 +1483,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('start', currentSelectedRangeId),
                   '拖动以调整高亮起点',
                   `hsn-selection-handle hsn-selection-handle--start${isDraggingPersisted ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(first.x, first.y + first.height / 2, persistedHandleStyle),
+                  buildHandleStyle(first.x, first.y + first.height / 2, entry.overlayRectType, persistedHandleStyle),
+                  entry.overlayRectType,
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -1448,7 +1496,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('end', currentSelectedRangeId),
                   '拖动以调整高亮终点',
                   `hsn-selection-handle hsn-selection-handle--end${isDraggingPersisted ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(last.x + last.width, last.y + last.height / 2, persistedHandleStyle),
+                  buildHandleStyle(last.x + last.width, last.y + last.height / 2, entry.overlayRectType, persistedHandleStyle),
+                  entry.overlayRectType,
                 )}
             </>
           );
