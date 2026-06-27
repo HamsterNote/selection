@@ -44,6 +44,7 @@ import {
   createRangeStyleSnapshot,
   deriveHandleVisualStyle,
   getEffectiveMarkerStyle,
+  getEffectiveSelectedMarkerStyle,
   getEffectiveSelectionStyle,
   styleShallowEqual,
   styleToSvgRectProps,
@@ -310,7 +311,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     markerColors,
     markerStyle,
     selectionStyle,
-    overlayRectType = 'px',
+    overlayRectType,
   },
   ref,
 ): React.ReactElement {
@@ -326,7 +327,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     [linkedMode, selectionId, linkedData],
   );
   const linkedSelectionId = linkedContext?.selectionId ?? null;
-  const linkedOverlayRectType = linkedContext?.data.overlayRectType ?? overlayRectType;
+  const legacyOverlayRectType = overlayRectType ?? 'px';
+  const linkedOverlayRectType = linkedContext?.data.overlayRectType ?? overlayRectType ?? 'percent';
 
   // 样式输入：新 API + 旧版兼容 props，memo 化避免稳定引用变化导致不必要的重渲染。
   const styleInput: StyleInput = useMemo(
@@ -526,7 +528,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         }
       } else {
         for (const range of ranges) {
-          const rangeOverlayRectType = getEffectiveLegacyOverlayRectType(range, overlayRectType);
+          const rangeOverlayRectType = getEffectiveLegacyOverlayRectType(range, legacyOverlayRectType);
           const storedRects = range.rects;
           const measuredRects = (() => {
             const domRange = createRangeFromOffsets(container, range.start, range.end);
@@ -554,7 +556,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       }
     }
     setPersistedRects((prev) => (rectListsEqual(prev, next) ? prev : next));
-  }, [linkedContext, overlayRectType, ranges]);
+  }, [legacyOverlayRectType, linkedContext, ranges]);
 
   // ranges 变化时同步重算（layout effect 避免闪烁）。
   // 这是 React 官方推荐的 DOM 测量模式：useLayoutEffect 读取 DOM → setState 重渲。
@@ -624,7 +626,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
     const container = containerRef.current;
     if (!container) return;
-    const rangeOverlayRectType = overlayRectType;
+    const rangeOverlayRectType = legacyOverlayRectType;
     const range: SelectionRange = {
       id: generateId(),
       text: selectedText,
@@ -654,7 +656,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     endIndex,
     onSelect,
     onHighlight,
-    overlayRectType,
+    legacyOverlayRectType,
     rects,
     selectRange,
     styleSnapshot,
@@ -1046,10 +1048,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           start: lo,
           end: hi,
           text: domRange.toString(),
-          overlayRectType: getEffectiveLegacyOverlayRectType(cur, overlayRectType),
+          overlayRectType: getEffectiveLegacyOverlayRectType(cur, legacyOverlayRectType),
           rects: storeRectsForOverlayRectType(
             rangeToOverlayRects(domRange, container),
-            getEffectiveLegacyOverlayRectType(cur, overlayRectType),
+            getEffectiveLegacyOverlayRectType(cur, legacyOverlayRectType),
             container,
           ),
           ...completeRangeStyleSnapshot(
@@ -1104,7 +1106,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
     };
-  }, [dragHandle, overlayRectType, setLinkedDraggingRange, styleSnapshot]);
+  }, [dragHandle, legacyOverlayRectType, setLinkedDraggingRange, styleSnapshot]);
 
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
   // 没有选中、或选中的 id 在 persistedRects 中找不到时为 null（不渲染 Popover）。
@@ -1145,13 +1147,15 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     if (visual.background !== undefined) s.background = visual.background;
     if (visual.borderColor !== undefined) {
       s.borderColor = visual.borderColor;
-      s.borderWidth = visual.borderWidth !== undefined ? `${visual.borderWidth}px` : '2px';
+      s.borderWidth = typeof visual.borderWidth === 'number'
+        ? `${visual.borderWidth}px`
+        : visual.borderWidth ?? '2px';
       s.borderStyle = 'solid';
     }
     return s;
   };
 
-  const activeSelectionOverlayRectType = linkedContext ? linkedOverlayRectType : overlayRectType;
+  const activeSelectionOverlayRectType = linkedContext ? linkedOverlayRectType : legacyOverlayRectType;
   const activePercentRects = (() => {
     const container = containerRef.current;
     if (!container || activeSelectionOverlayRectType !== 'percent') return [];
@@ -1221,10 +1225,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         {persistedRects.map((group) => {
           const { id, selectionId: rectSelectionId, overlayRectType: rectType, rects: rs } = group;
           if (rectType !== 'px') return null;
-          const groupStyle = getEffectiveMarkerStyle(group.markerStyle, styleInput);
-          const svgProps: { fill?: string; stroke?: string; strokeWidth?: number | string } = styleToSvgRectProps(groupStyle);
           return rs.map((r) => {
             const isSelected = id === currentSelectedRangeId;
+            const groupStyle = isSelected
+              ? getEffectiveSelectedMarkerStyle(group.markerStyle, styleInput)
+              : getEffectiveMarkerStyle(group.markerStyle, styleInput);
+            const svgProps: { fill?: string; stroke?: string; strokeWidth?: number | string } = styleToSvgRectProps(groupStyle);
             return (
               <rect
                 key={`${id}-${r.x},${r.y},${r.width},${r.height}`}
@@ -1273,9 +1279,11 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           {persistedRects.map((group) => {
             const { id, overlayRectType: rectType, percentRects } = group;
             if (rectType !== 'percent') return null;
-            const groupStyle = getEffectiveMarkerStyle(group.markerStyle, styleInput);
             return percentRects.map((r) => {
               const isSelected = id === currentSelectedRangeId;
+              const groupStyle = isSelected
+                ? getEffectiveSelectedMarkerStyle(group.markerStyle, styleInput)
+                : getEffectiveMarkerStyle(group.markerStyle, styleInput);
               return (
                 <div
                   key={`${id}-${r.x},${r.y},${r.width},${r.height}`}

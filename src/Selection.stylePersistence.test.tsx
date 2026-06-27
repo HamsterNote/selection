@@ -354,6 +354,96 @@ describe('Selection style persistence', () => {
     expect(rect).toHaveStyle({ fill: 'rgba(64,156,255,0.25)', stroke: '#1c7ed6' });
   });
 
+  it('legacy-selected-highlight.applies-to-selected-svg-and-percent-ranges', () => {
+    // Given: 仅使用旧版 markerColors API，未存 markerStyle 的旧数据应能区分普通/选中高亮色。
+    mockGeometry();
+    const pxRange: SelectionRange = {
+      id: 'old-px',
+      text: 'Deterministic',
+      start: 0,
+      end: 12,
+      createdAt: 1,
+      overlayRectType: 'px',
+      rects: [{ x: 40, y: 30, width: 80, height: 24 }],
+    };
+    const percentRange: SelectionRange = {
+      id: 'old-percent',
+      text: 'Deterministic',
+      start: 0,
+      end: 12,
+      createdAt: 1,
+      overlayRectType: 'percent',
+      rects: [{ x: 10, y: 10, width: 20, height: 8 }],
+    };
+
+    // When: 渲染被选中的 px range。
+    const { container, rerender } = render(
+      <Selection
+        ranges={[pxRange]}
+        selectedRangeId={pxRange.id}
+        overlayRectType="px"
+        markerColors={{
+          highlight: { fill: 'rgba(64,156,255,0.25)' },
+          selectedHighlight: { fill: 'rgba(255,193,7,0.45)' },
+        }}
+      >
+        {content()}
+      </Selection>,
+    );
+
+    // Then: SVG 选中态使用 selectedHighlight。
+    expect(container.querySelector('svg rect[data-range-id="old-px"]')).toHaveStyle({ fill: 'rgba(255,193,7,0.45)' });
+
+    // When: 渲染被选中的 percent range。
+    rerender(
+      <Selection
+        ranges={[percentRange]}
+        selectedRangeId={percentRange.id}
+        overlayRectType="percent"
+        markerColors={{
+          highlight: { fill: 'rgba(64,156,255,0.25)' },
+          selectedHighlight: { fill: 'rgba(255,193,7,0.45)' },
+        }}
+      >
+        {content()}
+      </Selection>,
+    );
+
+    // Then: percent overlay 同样使用 selectedHighlight。
+    expect(container.querySelector('.hsn-selection-percent-rect')).toHaveStyle({ backgroundColor: 'rgba(255,193,7,0.45)' });
+  });
+
+  it('handles.preserve-string-border-width', () => {
+    // Given: 用户传入合法 CSS 字符串 borderWidth。
+    mockGeometry();
+    const capturedHandles: Array<{ owner: string; rangeId: string | null; style: CSSProperties }> = [];
+    const renderHandle = vi.fn((props: { owner: 'active-selection' | 'persisted-range'; rangeId: string | null; style: CSSProperties }) => {
+      capturedHandles.push({ owner: props.owner, rangeId: props.rangeId, style: props.style });
+      return <button type="button" data-testid="custom-handle" />;
+    });
+    const range: SelectionRange = {
+      id: 'styled',
+      text: 'Deterministic',
+      start: 0,
+      end: 12,
+      createdAt: 1,
+      overlayRectType: 'px',
+      rects: [{ x: 40, y: 30, width: 80, height: 24 }],
+      markerStyle: { backgroundColor: 'rgba(64,156,255,0.25)', borderColor: '#1c7ed6', borderWidth: '0.125rem' },
+    };
+
+    // When
+    render(
+      <Selection ranges={[range]} selectedRangeId={range.id} overlayRectType="px" renderHandle={renderHandle}>
+        {content()}
+      </Selection>,
+    );
+
+    // Then: 字符串 borderWidth 原样传给手柄，不追加 px。
+    const persistedHandle = capturedHandles.find((h) => h.owner === 'persisted-range' && h.rangeId === range.id);
+    expect(persistedHandle?.style.borderWidth).toBe('0.125rem');
+  });
+
   it('legacy-color-props.create-stable-style-snapshots', () => {
     // Given
     mockGeometry();

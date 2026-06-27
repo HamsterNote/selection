@@ -93,6 +93,20 @@ export function resolveMarkerStyle(input: StyleInput): CSSProperties | undefined
   return undefined;
 }
 
+/** 解析已选中持久高亮的有效样式；新 API / 存储快照优先，旧版 selectedHighlight 作为兼容回退。 */
+export function getEffectiveSelectedMarkerStyle(
+  rangeStyle: CSSProperties | undefined,
+  input: StyleInput,
+): CSSProperties | undefined {
+  if (rangeStyle !== undefined) return rangeStyle;
+  if (input.markerStyle !== undefined) return input.markerStyle;
+
+  const fromSelectedMarkerColors = markerColorStyleToCssProperties(input.markerColors?.selectedHighlight);
+  if (hasVisualProperties(fromSelectedMarkerColors)) return fromSelectedMarkerColors;
+
+  return resolveMarkerStyle(input);
+}
+
 /** 解析活跃选区（selection）的有效样式。 */
 export function resolveSelectionStyle(input: StyleInput): CSSProperties | undefined {
   if (input.selectionStyle !== undefined) return input.selectionStyle;

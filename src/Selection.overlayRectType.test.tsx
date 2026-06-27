@@ -128,6 +128,26 @@ describe('Selection overlayRectType', () => {
     expect(container.querySelectorAll('svg rect[data-range-id]')).toHaveLength(0);
   });
 
+  it('selection.linked-default.missing-data-type-stores-percent', () => {
+    // Given / When / Then: linked data 缺省 overlayRectType 时，新建 range 也沿用历史 percent 语义。
+    mockGeometry();
+    const ref = createRef<SelectionRef>();
+    const onLinkedDataChange = vi.fn();
+    const linkedData: LinkedSelectionData = { items: [], selectedRangeId: null, selectionOrder: [] };
+    const { container } = render(
+      <Selection ref={ref} selectionId="page-a" linkedMode={true} linkedData={linkedData} onLinkedDataChange={onLinkedDataChange} ranges={[]}>
+        {content()}
+      </Selection>,
+    );
+
+    selectAndHighlight(container, ref);
+
+    const nextData = linkedHighlight(onLinkedDataChange);
+    const item = linkedItem(nextData);
+    expect(item.overlayRectType).toBe('percent');
+    expect(item.rectsBySelectionId['page-a']).toEqual([{ x: 10, y: 10, width: 20, height: 8 }]);
+  });
+
   it('selection.legacy-px.stores-pixels-and-renders-svg-rects', () => {
     // Given / When / Then: legacy px selection emits pixel rects and renders SVG rects.
     mockGeometry();
