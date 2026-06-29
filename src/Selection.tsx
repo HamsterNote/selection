@@ -68,6 +68,8 @@ type LinkedModeContext = {
   data: LinkedSelectionData;
 };
 
+type HandleDragStartEvent = React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>;
+
 /** 生成唯一 ID（毫秒时间戳 + 6 位随机串） */
 function generateId(): string {
   return `hsn-sel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -434,6 +436,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const currentSelectedRangeId = linkedContext
     ? linkedContext.data.selectedRangeId
     : selectedRangeId;
+  const currentSelectedRangeIdRef = useRef(currentSelectedRangeId);
+  currentSelectedRangeIdRef.current = currentSelectedRangeId;
   const linkedDraggingRange = linkedContext?.data.draggingRange ?? null;
   const isLinkedActiveSelectionDragging = linkedDraggingRange?.type === 'active-selection';
   const isLinkedSelectedRangeDragging =
@@ -446,6 +450,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const [isSelectingText, setIsSelectingText] = useState(false);
   const isSelectingTextRef = useRef(isSelectingText);
   isSelectingTextRef.current = isSelectingText;
+  const mouseSelectingTextRef = useRef(false);
 
   const getLinkedSelectionOrder = useCallback(
     () => getRegisteredContainers().map((entry) => entry.selectionId),
@@ -711,6 +716,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       }
 
       // 开始新的鼠标选择手势：隐藏活跃选区手柄直到 mouseup。
+      mouseSelectingTextRef.current = true;
       setIsSelectingText(true);
       setLinkedSelectingText(true);
       if (!onSelectionStart) return;
@@ -725,12 +731,22 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       if (target instanceof Node && selectionPopoverRef.current?.contains(target)) {
         return;
       }
+      mouseSelectingTextRef.current = false;
       setIsSelectingText(false);
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-      const range = selection.getRangeAt(0);
       if (!(target instanceof Node) || !container.contains(target)) return;
-      if (!range.intersectsNode(container)) return;
-      if (!selection.toString().trim()) return;
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        setLinkedSelectingText(false);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      if (!range.intersectsNode(container)) {
+        setLinkedSelectingText(false);
+        return;
+      }
+      if (!selection.toString().trim()) {
+        setLinkedSelectingText(false);
+        return;
+      }
       // 标记跳过紧随其后的 click 事件，避免 handleContainerClick 将拖拽结束
       // 时鼠标位置判定为「点击在选区 rect 外部」而误清除刚形成的活跃选区。
       skipClickRef.current = true;
@@ -752,7 +768,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   }, [onSelectionStart, onSelectionEnd, setLinkedSelectingText]);
 
   useEffect(() => {
-    if (!hasSelection) {
+    if (!hasSelection && !mouseSelectingTextRef.current) {
       setIsSelectingText(false);
       setLinkedSelectingText(false);
     }
@@ -895,32 +911,26 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
   }, [currentSelectedRangeId, persistedRects, selectRange]);
 
-  /**
-   * 手柄 pointerdown：进入拖动模式。
-   * preventDefault 阻止浏览器开始新的原生文本选区；
-   * stopPropagation 阻止冒泡到容器，避免误触发「点击高亮选中」逻辑。
-   * 第二参数 rangeId 可选：传入则表示拖动的是已选中高亮 range 的手柄（修改其 start/end）；
-   * 不传则拖动的是活跃选区手柄（修改原生 selection）。
-   */
-  const startHandleDrag = useCallback(
-    (which: 'start' | 'end', rangeId?: string) => (e: React.PointerEvent<HTMLElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
+  const beginHandleDrag = useCallback(
+    (which: 'start' | 'end', rangeId: string | undefined, handleElement: HTMLElement) => {
+      const nextPersistedId = rangeId ?? null;
+      if (dragHandleRef.current === which && dragPersistedIdRef.current === nextPersistedId) return;
+
       // 立即设内联 pointer-events: none，不依赖 React 重渲染 → CSS class 链。
       // 首帧 pointermove 在 React commit 前就可能触发，若手柄仍 intercept 事件，
       // caretRangeFromPoint 会命中手柄而非文字，导致选区跳变/闪烁。
-      e.currentTarget.style.pointerEvents = 'none';
-      dragHandleElRef.current = e.currentTarget;
+      handleElement.style.pointerEvents = 'none';
+      dragHandleElRef.current = handleElement;
       dragHandleRef.current = which;
-      dragPersistedIdRef.current = rangeId ?? null;
+      dragPersistedIdRef.current = nextPersistedId;
 
       // 缓存拖动锚点：不动的那个边界。拖 start 锚点=end，拖 end 锚点=start。
       // 活跃选区从 ref 读取当前 endIndex/startIndex；高亮 range 从 ranges 读取当前 range 的 end/start。
-      if (rangeId) {
+      if (nextPersistedId) {
         const linkedData = linkedDataRef.current;
         const currentSelId = linkedSelectionIdRef.current;
         if (linkedData && currentSelId) {
-          const item = linkedData.items.find((it) => it.id === rangeId);
+          const item = linkedData.items.find((it) => it.id === nextPersistedId);
           if (!item) {
             dragAnchorRef.current = -1;
             return;
@@ -929,7 +939,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           dragAnchorRef.current = which === 'start' ? item.end.offset : item.start.offset;
         } else {
           // legacy 模式
-          const r = rangesRef.current.find((x) => x.id === rangeId);
+          const r = rangesRef.current.find((x) => x.id === nextPersistedId);
           dragAnchorRef.current = r ? (which === 'start' ? r.end : r.start) : -1;
         }
       } else {
@@ -945,19 +955,67 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       const currentLinkedSelectionId = linkedSelectionIdRef.current;
       if (currentLinkedData && currentLinkedSelectionId) {
         setLinkedDraggingRange(
-          rangeId ? { type: 'persisted-range', id: rangeId } : { type: 'active-selection' },
+          nextPersistedId ? { type: 'persisted-range', id: nextPersistedId } : { type: 'active-selection' },
         );
       }
 
       setDragHandle(which);
-      setDragPersistedId(rangeId ?? null);
+      setDragPersistedId(nextPersistedId);
     },
     [linkedRange, setLinkedDraggingRange],
   );
 
   /**
+   * 手柄 pointerdown/mousedown：进入拖动模式。
+   * preventDefault 阻止浏览器开始新的原生文本选区；
+   * stopPropagation 阻止冒泡到容器，避免误触发「点击高亮选中」逻辑。
+   * 第二参数 rangeId 可选：传入则表示拖动的是已选中高亮 range 的手柄（修改其 start/end）；
+   * 不传则拖动的是活跃选区手柄（修改原生 selection）。
+   */
+  const startHandleDrag = useCallback(
+    (which: 'start' | 'end', rangeId?: string) => (e: HandleDragStartEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      beginHandleDrag(which, rangeId, e.currentTarget);
+    },
+    [beginHandleDrag],
+  );
+
+  useEffect(() => {
+    const handleNativeDragStart = (event: PointerEvent | MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const handle = target.closest<HTMLElement>('.hsn-selection-handle');
+      if (!handle) return;
+      const container = containerRef.current;
+      if (!container || !container.contains(handle)) return;
+
+      const type = handle.classList.contains('hsn-selection-handle--start')
+        ? 'start'
+        : handle.classList.contains('hsn-selection-handle--end')
+          ? 'end'
+          : undefined;
+      if (!type) return;
+
+      const rangeId = !hasSelectionRef.current
+        ? currentSelectedRangeIdRef.current ?? undefined
+        : undefined;
+      event.preventDefault();
+      event.stopPropagation();
+      beginHandleDrag(type, rangeId, handle);
+    };
+
+    document.addEventListener('pointerdown', handleNativeDragStart, true);
+    document.addEventListener('mousedown', handleNativeDragStart, true);
+    return () => {
+      document.removeEventListener('pointerdown', handleNativeDragStart, true);
+      document.removeEventListener('mousedown', handleNativeDragStart, true);
+    };
+  }, [beginHandleDrag]);
+
+  /**
    * 拖动进行中 / 结束的全局 pointer 监听。
-   * 仅在 dragHandle 非 null（拖动激活）时挂载，拖动结束自动解除。
+   * 始终挂载，具体拖动状态通过 refs 判断，避免首个 pointermove 早于 React state commit 时丢失。
    * 在 pointermove 中：
    *   1) 通过 caretInfoFromPoint 在鼠标处反查 caret 的 (node, offset)；
    *   2) 用 preRange 累计字符长度，换算为容器纯文本偏移；
@@ -965,11 +1023,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
    *      用 Math.min/max 生成正端 lo/hi，允许越过锚点实现反向选区；
    *   4) 活跃选区：构造 DOM Range + setSelection 触发 selectionchange → hook 更新 rects；
    *      高亮 range：构造 updated SelectionRange + onUpdateRange 上报，并同步原生 selection 以更新 persisted rects。
-   * 监听器依赖 [dragHandle]：拖动开始时挂载，结束时卸载，期间不会随 startIndex/endIndex 变化重注册
-   * （使用 rangesRef / dragAnchorRef 桥接最新值，避免 selectionchange 同步更新 ref 导致锚点漂移）。
+   * 监听器不依赖 dragHandle state；使用 rangesRef / dragAnchorRef 桥接最新值，
+   * 避免 selectionchange 同步更新 ref 导致锚点漂移。
    */
   useEffect(() => {
-    if (!dragHandle) return;
     const onMove = (e: PointerEvent) => {
       const which = dragHandleRef.current;
       if (!which) return;
@@ -1098,6 +1155,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       sel.addRange(newRange);
     };
     const onUp = () => {
+      if (!dragHandleRef.current && !dragPersistedIdRef.current) return;
       const persistedId = dragPersistedIdRef.current;
       if (dragHandleElRef.current) {
         dragHandleElRef.current.style.pointerEvents = '';
@@ -1125,7 +1183,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
     };
-  }, [dragHandle, legacyOverlayRectType, selectRange, setLinkedDraggingRange, styleSnapshot]);
+  }, [legacyOverlayRectType, selectRange, setLinkedDraggingRange, styleSnapshot]);
 
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
   // 没有选中、或选中的 id 在 persistedRects 中找不到时为 null（不渲染 Popover）。
@@ -1146,11 +1204,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   })();
 
   const activeSelectionOverlayRectType = linkedContext ? linkedOverlayRectType : legacyOverlayRectType;
-  const activePercentRects = (() => {
+  // 百分比坐标只在 rects 变化（新选区）时计算一次，避免缩放导致容器 BCR 变化后重算出漂移的百分比值
+  const activePercentRects = useMemo(() => {
     const container = containerRef.current;
     if (!container || activeSelectionOverlayRectType !== 'percent') return [];
     return pixelRectsToPercentRects(rects, container);
-  })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rects, activeSelectionOverlayRectType]);
 
   // 计算「选区 Popover」锚点：活跃选区（未高亮）最顶部矩形的水平中点 + 顶边。
   // 与 popoverAnchor 互斥（活跃选区时 selectedRangeId 必为 null）。
@@ -1199,7 +1259,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     rangeId: string | null,
     position: HandlePosition,
     isDragging: boolean,
-    onPointerDown: (e: React.PointerEvent<HTMLElement>) => void,
+    onDragStart: (e: HandleDragStartEvent) => void,
     ariaLabel: string,
     className: string,
     style: React.CSSProperties,
@@ -1212,7 +1272,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       position,
       positionUnit,
       isDragging,
-      onPointerDown,
+      onPointerDown: (event) => onDragStart(event),
       ariaLabel,
       className,
       style,
@@ -1229,11 +1289,18 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         tabIndex={-1}
         aria-label={ariaLabel}
         style={style}
-        onMouseDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
+        ref={(el) => {
+          if (!el) return;
+          const nativeDragStart = (event: PointerEvent | MouseEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            beginHandleDrag(type, rangeId ?? undefined, el);
+          };
+          el.onpointerdown = nativeDragStart;
+          el.onmousedown = nativeDragStart;
         }}
-        onPointerDown={onPointerDown}
+        onMouseDown={onDragStart}
+        onPointerDown={handleProps.onPointerDown}
       />
     );
   };

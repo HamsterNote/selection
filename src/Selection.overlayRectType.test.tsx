@@ -54,6 +54,10 @@ function installNativeSelection(container: HTMLElement): void {
   if (!selection) throw new TypeError('Expected document selection');
   selection.removeAllRanges();
   selection.addRange(range);
+  if (vi.isMockFunction(window.getSelection)) {
+    window.getSelection.mockReturnValue(selection);
+    return;
+  }
   vi.spyOn(window, 'getSelection').mockReturnValue(selection);
 }
 
@@ -421,6 +425,62 @@ describe('Selection overlayRectType', () => {
     // Then: popover should reappear after mouseup
     const popoverAfter = container.querySelector('.hsn-selection-popover');
     expect(popoverAfter).toBeInTheDocument();
+  });
+
+  it('S1.active-popover.stays-hidden-when-reselecting-before-mouseup', () => {
+    // Given: an active native selection already shows its selectionPopover.
+    mockGeometry();
+    const originalAddEventListener = document.addEventListener.bind(document);
+    const selectionChangeRef: { current: EventListener | null } = { current: null };
+    vi.spyOn(document, 'addEventListener').mockImplementation((type, listener, options) => {
+      if (type === 'selectionchange' && typeof listener === 'function') {
+        selectionChangeRef.current = listener;
+      }
+      originalAddEventListener(type, listener, options);
+    });
+    const { container } = render(
+      <Selection ranges={[]} overlayRectType="percent" selectionPopover={<div data-testid="active-popover">Active</div>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    const handleSelectionChange = selectionChangeRef.current;
+    if (!handleSelectionChange) throw new TypeError('Expected selectionchange listener');
+    installNativeSelection(host);
+    act(() => {
+      fireEvent.mouseDown(host, { clientX: 40, clientY: 30 });
+      handleSelectionChange(new Event('selectionchange'));
+      fireEvent.mouseUp(document, { target: host, clientX: 90, clientY: 42 });
+      flushSync(() => {});
+    });
+    expect(container.querySelector('.hsn-selection-popover')).toBeInTheDocument();
+
+    // When: the user starts a second drag without clearing the first selection.
+    // Browsers first clear the previous selection, then emit a new non-empty selectionchange while the mouse is still down.
+    const getSelection = window.getSelection;
+    if (!vi.isMockFunction(getSelection)) throw new TypeError('Expected mocked getSelection');
+    act(() => {
+      fireEvent.mouseDown(host, { clientX: 180, clientY: 30 });
+      getSelection.mockReturnValue(null);
+      handleSelectionChange(new Event('selectionchange'));
+      flushSync(() => {});
+    });
+    expect(container.querySelector('.hsn-selection-popover')).not.toBeInTheDocument();
+
+    act(() => {
+      installNativeSelection(host);
+      handleSelectionChange(new Event('selectionchange'));
+      flushSync(() => {});
+    });
+
+    // Then: the active selectionPopover remains hidden until mouseup commits the current drag.
+    expect(container.querySelector('.hsn-selection-popover')).not.toBeInTheDocument();
+
+    act(() => {
+      fireEvent.mouseUp(document, { target: host, clientX: 200, clientY: 40 });
+      flushSync(() => {});
+    });
+    expect(container.querySelector('.hsn-selection-popover')).toBeInTheDocument();
   });
 
   // S2 — clicking inside selectionPopover does not hide it
