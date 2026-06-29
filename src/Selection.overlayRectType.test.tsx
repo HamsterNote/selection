@@ -114,6 +114,7 @@ describe('Selection overlayRectType', () => {
   afterEach(() => {
     document.getSelection()?.removeAllRanges();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('selection.linked-percent.stores-percent-and-renders-divs', () => {
@@ -536,5 +537,195 @@ describe('Selection overlayRectType', () => {
     // Then: popover should hide during drag-select
     const popoverDuringDrag = container.querySelector('.hsn-selection-popover');
     expect(popoverDuringDrag).not.toBeInTheDocument();
+  });
+
+  it('selection.persisted-popover.button-clicks-after-mousedown', () => {
+    // Given: persisted popover contains a delete/action button.
+    mockGeometry();
+    const onDelete = vi.fn();
+    const { container } = render(
+      <Selection
+        ranges={[percentRange()]}
+        selectedRangeId="stored-percent"
+        overlayRectType="percent"
+        popover={<button type="button" data-testid="delete-popover" onClick={onDelete}>Delete</button>}
+      >
+        {content()}
+      </Selection>,
+    );
+    const button = container.querySelector('[data-testid="delete-popover"]');
+    if (!(button instanceof HTMLElement)) throw new TypeError('Expected persisted popover button');
+
+    // When: pointer interaction begins inside the popover before the click fires.
+    act(() => {
+      fireEvent.mouseDown(button);
+      fireEvent.click(button);
+    });
+
+    // Then: container mousedown does not unmount the popover before the button click.
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="delete-popover"]')).toBeInTheDocument();
+  });
+
+  it('selection.linked-persisted-popover.renders-only-in-start-container', () => {
+    // Given: one linked persisted range spans page-a to page-b.
+    mockGeometry();
+    const linkedData = {
+      items: [
+        {
+          id: 'linked-cross-page',
+          text: 'Deterministic paragraph one.Deterministic paragraph one.',
+          start: { selectionId: 'page-a', offset: 0 },
+          end: { selectionId: 'page-b', offset: 12 },
+          createdAt: 1,
+          overlayRectType: 'percent',
+          rectsBySelectionId: {
+            'page-a': [{ x: 10, y: 10, width: 20, height: 8 }],
+            'page-b': [{ x: 10, y: 10, width: 20, height: 8 }],
+          },
+        },
+      ],
+      selectedRangeId: 'linked-cross-page',
+      selectionOrder: ['page-a', 'page-b'],
+    } satisfies LinkedSelectionData;
+
+    // When: both linked containers render the same selected linked data.
+    const { container } = render(
+      <>
+        <Selection selectionId="page-a" linkedMode={true} linkedData={linkedData} ranges={[]} popover={<div data-testid="persisted-popover">A</div>}>
+          {content()}
+        </Selection>
+        <Selection selectionId="page-b" linkedMode={true} linkedData={linkedData} ranges={[]} popover={<div data-testid="persisted-popover">B</div>}>
+          {content()}
+        </Selection>
+      </>,
+    );
+
+    // Then: only the start container owns the shared persisted popover.
+    const popovers = container.querySelectorAll('[data-testid="persisted-popover"]');
+    expect(popovers).toHaveLength(1);
+    expect(popovers[0]).toHaveTextContent('A');
+  });
+
+  it('selection.linked-active-range.renders-both-overlays-and-one-popover', () => {
+    // Given: shared mobile active range spans page-a to page-b before highlight confirmation.
+    mockGeometry();
+    const linkedData = {
+      items: [],
+      selectedRangeId: null,
+      selectionOrder: ['page-a', 'page-b'],
+      activeRange: {
+        id: 'active-cross-page',
+        text: 'Deterministic paragraph one.Deterministic paragraph one.',
+        start: { selectionId: 'page-a', offset: 0 },
+        end: { selectionId: 'page-b', offset: 12 },
+        createdAt: 1,
+        overlayRectType: 'percent',
+        rectsBySelectionId: {
+          'page-a': [{ x: 10, y: 10, width: 20, height: 8 }],
+          'page-b': [{ x: 10, y: 10, width: 20, height: 8 }],
+        },
+      },
+    } satisfies LinkedSelectionData;
+
+    // When: both linked containers render the shared active range.
+    const { container } = render(
+      <>
+        <Selection selectionId="page-a" linkedMode={true} linkedData={linkedData} ranges={[]} selectionPopover={<div data-testid="active-popover">A</div>}>
+          {content()}
+        </Selection>
+        <Selection selectionId="page-b" linkedMode={true} linkedData={linkedData} ranges={[]} selectionPopover={<div data-testid="active-popover">B</div>}>
+          {content()}
+        </Selection>
+      </>,
+    );
+
+    // Then: both pages draw active overlay rects, but only the start page owns the popover.
+    expect(container.querySelectorAll('.hsn-selection-percent-rect')).toHaveLength(2);
+    const popovers = container.querySelectorAll('[data-testid="active-popover"]');
+    expect(popovers).toHaveLength(1);
+    expect(popovers[0]).toHaveTextContent('A');
+  });
+
+  it('selection.linked-active-range.highlight-keeps-appended-item-in-final-update', () => {
+    // Given: linked mobile active range is already shared before confirmation.
+    mockGeometry();
+    const ref = createRef<SelectionRef>();
+    const onChange = vi.fn();
+    const activeRange = {
+      id: 'active-same-page',
+      text: 'Deterministic',
+      start: { selectionId: 'page-a', offset: 0 },
+      end: { selectionId: 'page-a', offset: 12 },
+      createdAt: 1,
+      overlayRectType: 'percent',
+      rectsBySelectionId: {
+        'page-a': [{ x: 10, y: 10, width: 20, height: 8 }],
+      },
+    } satisfies LinkedSelectionData['activeRange'];
+    const linkedData = {
+      items: [],
+      selectedRangeId: null,
+      selectionOrder: ['page-a'],
+      activeRange,
+    } satisfies LinkedSelectionData;
+
+    render(
+      <Selection
+        ref={ref}
+        selectionId="page-a"
+        linkedMode={true}
+        linkedData={linkedData}
+        ranges={[]}
+        onLinkedDataChange={onChange}
+      >
+        {content()}
+      </Selection>,
+    );
+
+    // When: caller confirms the active linked selection.
+    act(() => {
+      ref.current?.highlight();
+    });
+
+    // Then: the final controlled update keeps the appended item and clears activeRange once.
+    const finalData = onChange.mock.lastCall?.[0];
+    expect(finalData?.items).toHaveLength(1);
+    expect(finalData?.items[0]?.id).toBe('active-same-page');
+    expect(finalData?.selectedRangeId).toBe('active-same-page');
+    expect(finalData?.activeRange).toBeNull();
+  });
+
+  it('selection.mobile-active-selection.tap-inside-container-clears', () => {
+    // Given: coarse pointer device with an active selection shown inside the component.
+    mockGeometry();
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(pointer: coarse)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const { container } = render(
+      <Selection ranges={[]} overlayRectType="percent" selectionPopover={<div data-testid="active-popover">Active</div>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    selectOnly(container);
+    expect(container.querySelector('[data-testid="active-popover"]')).toBeInTheDocument();
+
+    // When: user performs a quick tap inside Selection, not on handles or popovers.
+    act(() => {
+      fireEvent.touchStart(host, { touches: [{ clientX: 160, clientY: 80 }] });
+      fireEvent.touchEnd(host);
+    });
+
+    // Then: mobile active selection is cleared from inside the component.
+    expect(container.querySelector('[data-testid="active-popover"]')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.hsn-selection-handle')).toHaveLength(0);
   });
 });

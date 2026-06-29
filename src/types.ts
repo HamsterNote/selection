@@ -139,6 +139,12 @@ export type LinkedSelectionData = {
    * 同步隐藏活跃选区手柄，避免跨区拖选时其它页面上的手柄仍然显示。
    */
   selectingText?: boolean;
+  /**
+   * 共享的联动活跃选区（尚未确认高亮）。
+   * 移动端不会创建原生 Selection，因此需要把跨区域 active range 放到共享数据中，
+   * 让其它 linked 容器也能渲染对应的 overlay、手柄与 Popover。
+   */
+  activeRange?: LinkedSelectionRange | null;
 };
 
 /**

@@ -129,15 +129,12 @@ function createTextFragmentRange(range: Range, textNode: Text): Range | null {
 }
 
 function captureLinkedSelection(
-  selection: Selection,
+  range: Range,
   localSelectionId: string | null | undefined,
   overlayRectType: OverlayRectType,
   markerStyle: CSSProperties | undefined,
   selectionStyle: CSSProperties | undefined,
 ): LinkedSelectionCapture | null {
-  const range = selection.getRangeAt(0);
-  if (!range) return null;
-
   if (
     !isSameDocumentLightDomEndpoint(range.startContainer) ||
     !isSameDocumentLightDomEndpoint(range.endContainer)
@@ -265,6 +262,7 @@ export function useTextSelection(
 ): UseTextSelectionResult & {
   rects: OverlayRect[];
   linkedRange: LinkedSelectionRange | null;
+  setFromRange: (range: Range) => void;
 } {
   const [state, setState] = useState<InternalSelectionState>(EMPTY_STATE);
 
@@ -285,8 +283,13 @@ export function useTextSelection(
     }
 
     if (options.linkedMode) {
+      const nativeRange = selection.getRangeAt(0);
+      if (!nativeRange) {
+        setState(EMPTY_STATE);
+        return;
+      }
       const linkedCapture = captureLinkedSelection(
-        selection,
+        nativeRange,
         options.selectionId,
         options.overlayRectType ?? 'px',
         options.markerStyle,
@@ -337,6 +340,64 @@ export function useTextSelection(
     window.getSelection()?.removeAllRanges();
   }, []);
 
+  /**
+   * 直接从 DOM Range 设置选区 state，不经过 window.getSelection()。
+   * 移动端专用：user-select:none 下 addRange() 会被静默拒绝，
+   * 且一旦创建原生 Selection 浏览器就会渲染原生水滴手柄。
+   * 此函数绕过原生 Selection API，直接计算文本/坐标/偏移并注入 state。
+   */
+  const setFromRange = useCallback(
+    (range: Range) => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const text = range.toString();
+      if (!text.trim()) {
+        setState(EMPTY_STATE);
+        return;
+      }
+
+      if (options.linkedMode) {
+        const linkedCapture = captureLinkedSelection(
+          range,
+          options.selectionId,
+          options.overlayRectType ?? 'px',
+          options.markerStyle,
+          options.selectionStyle,
+        );
+        if (!linkedCapture) {
+          setState(EMPTY_STATE);
+          return;
+        }
+        setState({
+          selectedText: linkedCapture.item.text,
+          startIndex: linkedCapture.localStartIndex,
+          endIndex: linkedCapture.localEndIndex,
+          rects: linkedCapture.localRects,
+          linkedRange: linkedCapture.item,
+        });
+        return;
+      }
+
+      const startOffset = getLocalOffset(container, range.startContainer, range.startOffset);
+      const endOffset = getLocalOffset(container, range.endContainer, range.endOffset);
+      if (startOffset === null || endOffset === null) {
+        setState(EMPTY_STATE);
+        return;
+      }
+
+      const rectsResult = rangeToOverlayRects(range, container);
+      setState({
+        selectedText: text,
+        startIndex: Math.min(startOffset, endOffset),
+        endIndex: Math.max(startOffset, endOffset),
+        rects: rectsResult,
+        linkedRange: null,
+      });
+    },
+    [containerRef, options.linkedMode, options.overlayRectType, options.selectionId, options.markerStyle, options.selectionStyle],
+  );
+
   const hasSelection = state.startIndex >= 0 && state.endIndex > state.startIndex;
 
   return {
@@ -347,5 +408,6 @@ export function useTextSelection(
     clear,
     rects: hasSelection ? state.rects : [],
     linkedRange: hasSelection ? state.linkedRange : null,
+    setFromRange,
   };
 }

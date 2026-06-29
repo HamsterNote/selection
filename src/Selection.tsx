@@ -63,6 +63,12 @@ type PersistedRectGroup = {
   selectionStyle?: CSSProperties;
 };
 
+type ActiveRectGroup = {
+  overlayRectType: OverlayRectType;
+  rects: OverlayRect[];
+  percentRects: PercentOverlayRect[];
+};
+
 type LinkedModeContext = {
   selectionId: string;
   data: LinkedSelectionData;
@@ -144,6 +150,46 @@ function caretInfoFromPoint(x: number, y: number): { node: Node; offset: number 
     return null;
   }
   return null;
+}
+
+/**
+ * 在视口坐标 (x, y) 处查找单词并返回对应的 DOM Range。
+ * 不创建原生 Selection —— 移动端 user-select:none 下 addRange() 会被静默拒绝，
+ * 即使成功也会触发浏览器渲染原生水滴手柄。调用方应通过 setFromRange 注入 state。
+ *
+ * 分词策略（优先级递减）：
+ * 1. Selection.modify('extend', dir, 'word') —— 浏览器原生分词
+ * 2. 手动 Unicode 字符属性扩展 —— 回退方案
+ * 3. CJK 单字符退化 —— 避免 \p{L} 选中整段中文
+ */
+function selectWordAtPoint(x: number, y: number): Range | null {
+  const caret = caretInfoFromPoint(x, y);
+  if (!caret || !(caret.node instanceof Text)) return null;
+
+  const text = caret.node.textContent ?? '';
+  if (!text) return null;
+
+  const offset = Math.min(caret.offset, text.length);
+
+  const isWordChar = (ch: string | undefined): boolean => !!ch && /[\p{L}\p{N}_]/u.test(ch);
+  let start = offset;
+  let end = offset;
+  while (start > 0 && isWordChar(text[start - 1])) start--;
+  while (end < text.length && isWordChar(text[end])) end++;
+
+  const isCJK = (ch: string): boolean =>
+    /[\u{4e00}-\u{9fff}\u{3400}-\u{4dbf}\u{3040}-\u{30ff}\u{ac00}-\u{d7af}\u{f900}-\u{faff}]/u.test(ch);
+  if (end - start > 1 && isCJK(text[offset] ?? text[Math.max(0, offset - 1)])) {
+    start = offset;
+    end = Math.min(text.length, offset + 1);
+  }
+
+  if (start >= end) return null;
+
+  const wordRange = document.createRange();
+  wordRange.setStart(caret.node, start);
+  wordRange.setEnd(caret.node, end);
+  return wordRange;
 }
 
 /** 把 Range 的 ClientRects 换算为相对容器的 Overlay 矩形数组（多行可能多个） */
@@ -245,6 +291,45 @@ function rectListsEqual(a: PersistedRectGroup[], b: PersistedRectGroup[]): boole
   return true;
 }
 
+function overlayRectsEqual(a: readonly OverlayRect[], b: readonly OverlayRect[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (
+      a[i].x !== b[i].x ||
+      a[i].y !== b[i].y ||
+      a[i].width !== b[i].width ||
+      a[i].height !== b[i].height
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function linkedActiveRangeEqual(
+  a: LinkedSelectionRange | null | undefined,
+  b: LinkedSelectionRange | null | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  if (a.text !== b.text) return false;
+  if (a.overlayRectType !== b.overlayRectType) return false;
+  if (a.start.selectionId !== b.start.selectionId || a.start.offset !== b.start.offset) return false;
+  if (a.end.selectionId !== b.end.selectionId || a.end.offset !== b.end.offset) return false;
+  if (!styleShallowEqual(a.markerStyle, b.markerStyle)) return false;
+  if (!styleShallowEqual(a.selectionStyle, b.selectionStyle)) return false;
+
+  const aKeys = Object.keys(a.rectsBySelectionId);
+  const bKeys = Object.keys(b.rectsBySelectionId);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    const aRects = a.rectsBySelectionId[key];
+    const bRects = b.rectsBySelectionId[key];
+    if (!aRects || !bRects) return false;
+    if (!overlayRectsEqual(aRects, bRects)) return false;
+  }
+  return true;
+}
+
 function getLinkedModeContext(
   linkedMode: boolean | undefined,
   selectionId: string | undefined,
@@ -319,6 +404,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 ): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [containerReadyVersion, setContainerReadyVersion] = useState(0);
   // Popover DOM 引用，用于「点击文档其它位置取消选中」时排除 popover 内部点击
   const popoverRef = useRef<HTMLDivElement>(null);
   // 选区（活跃，未高亮）Popover 的 DOM 引用；用于点击事件外排除
@@ -355,7 +441,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const styleInputRef = useRef(styleInput);
   styleInputRef.current = styleInput;
 
-  const { selectedText, startIndex, endIndex, hasSelection, clear, rects, linkedRange } =
+  const { selectedText, startIndex, endIndex, hasSelection, clear, rects, linkedRange, setFromRange } =
     useTextSelection(containerRef, {
       linkedMode: !!linkedContext,
       selectionId: linkedSelectionId,
@@ -384,6 +470,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const endIndexRef = useRef(endIndex);
   startIndexRef.current = startIndex;
   endIndexRef.current = endIndex;
+  // 桥接 ref：让移动端 touch effect 和 pointermove 调用 setFromRange 而不触发重注册。
+  const setFromRangeRef = useRef(setFromRange);
+  setFromRangeRef.current = setFromRange;
   // 桥接 ref：让 pointermove 监听器读取最新 ranges / onUpdateRange 而不触发重注册。
   const rangesRef = useRef(ranges);
   rangesRef.current = ranges;
@@ -428,17 +517,50 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     [],
   );
 
-  // 桥接 ref：容器 mousedown 监听需要读取最新 hasSelection / rects，但 effect 不重注册。
-  const hasSelectionRef = useRef(hasSelection);
-  hasSelectionRef.current = hasSelection;
-  const rectsRef = useRef(rects);
-  rectsRef.current = rects;
+  const setLinkedActiveRange = useCallback((activeRange: LinkedSelectionRange | null) => {
+    const data = linkedDataRef.current;
+    const onChange = onLinkedDataChangeRef.current;
+    if (!data || !onChange) return;
+    if (data.activeRange === activeRange) return;
+    onChange({ ...data, activeRange });
+  }, []);
+
+  const clearActiveSelection = useCallback(() => {
+    clear();
+    setLinkedActiveRange(null);
+  }, [clear, setLinkedActiveRange]);
+
   const currentSelectedRangeId = linkedContext
     ? linkedContext.data.selectedRangeId
     : selectedRangeId;
   const currentSelectedRangeIdRef = useRef(currentSelectedRangeId);
   currentSelectedRangeIdRef.current = currentSelectedRangeId;
   const linkedDraggingRange = linkedContext?.data.draggingRange ?? null;
+  const sharedActiveRange = linkedContext?.data.activeRange ?? null;
+  const activeSelectionOverlayRectType = linkedContext ? linkedOverlayRectType : legacyOverlayRectType;
+  const sharedActiveRectGroup = useMemo<ActiveRectGroup | null>(() => {
+    if (containerReadyVersion === 0) return null;
+    if (!linkedContext || !sharedActiveRange) return null;
+    const container = containerRef.current;
+    if (!container) return null;
+    const storedRects = sharedActiveRange.rectsBySelectionId[linkedContext.selectionId];
+    if (!storedRects) return null;
+    const overlayType = getEffectiveLinkedOverlayRectType(sharedActiveRange);
+    const pixelRects = overlayType === 'px' ? storedRects : percentRectsToPixelRects(storedRects, container);
+    const percentRects = overlayType === 'percent' ? storedRects : pixelRectsToPercentRects(storedRects, container);
+    return { overlayRectType: overlayType, rects: pixelRects, percentRects };
+  }, [containerReadyVersion, linkedContext, sharedActiveRange]);
+  const activeRangeForDisplay = linkedRange ?? sharedActiveRange;
+  const displayHasSelection = hasSelection || sharedActiveRectGroup !== null;
+  const displayRects = hasSelection ? rects : sharedActiveRectGroup?.rects ?? [];
+  const displayActiveOverlayRectType = sharedActiveRectGroup?.overlayRectType ?? activeSelectionOverlayRectType;
+  // 桥接 ref：容器 mousedown 监听需要读取最新 hasSelection / rects，但 effect 不重注册。
+  const hasSelectionRef = useRef(displayHasSelection);
+  hasSelectionRef.current = displayHasSelection;
+  const clearActiveSelectionRef = useRef(clearActiveSelection);
+  clearActiveSelectionRef.current = clearActiveSelection;
+  const rectsRef = useRef(displayRects);
+  rectsRef.current = displayRects;
   const isLinkedActiveSelectionDragging = linkedDraggingRange?.type === 'active-selection';
   const isLinkedSelectedRangeDragging =
     linkedDraggingRange?.type === 'persisted-range' &&
@@ -464,6 +586,11 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       console.warn('Selection linkedMode requires a non-empty selectionId.');
     }
   }, [linkedMode, selectionId]);
+
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
+    setContainerReadyVersion((version) => version + 1);
+  }, []);
 
   useEffect(() => {
     if (!linkedSelectionId) return;
@@ -588,37 +715,41 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
    * onSelectRange 自动将新建的 range 设为「选中」，满足「刚高亮完的也算一种选中」的需求。
    */
   const handleConfirm = useCallback(() => {
-    if (!hasSelection || !selectedText) return;
+    const activeLinkedRange = linkedRange ?? sharedActiveRange;
+    const activeText = selectedText || activeLinkedRange?.text || '';
+    if (!hasSelection && !activeLinkedRange) return;
+    if (!activeText) return;
 
     if (linkedContext) {
-      if (!linkedRange) {
-        clear();
+      if (!activeLinkedRange) {
+        clearActiveSelection();
         return;
       }
 
       const nextData: LinkedSelectionData = {
         ...linkedContext.data,
-        items: [...linkedContext.data.items, linkedRange],
-        selectedRangeId: linkedRange.id,
+        items: [...linkedContext.data.items, activeLinkedRange],
+        selectedRangeId: activeLinkedRange.id,
+        activeRange: null,
       };
       onLinkedDataChange?.(nextData);
-      onLinkedSelect?.(linkedRange);
-      onLinkedSelectRange?.(linkedRange.id);
+      onLinkedSelect?.(activeLinkedRange);
+      onLinkedSelectRange?.(activeLinkedRange.id);
 
       if (
-        linkedRange.start.selectionId === linkedSelectionId &&
-        linkedRange.end.selectionId === linkedSelectionId
+        activeLinkedRange.start.selectionId === linkedSelectionId &&
+        activeLinkedRange.end.selectionId === linkedSelectionId
       ) {
         const localRange: SelectionRange = {
-          id: linkedRange.id,
-          text: linkedRange.text,
-          start: linkedRange.start.offset,
-          end: linkedRange.end.offset,
-          createdAt: linkedRange.createdAt,
-          overlayRectType: linkedRange.overlayRectType,
-          rects: linkedRange.rectsBySelectionId[linkedSelectionId],
-          markerStyle: linkedRange.markerStyle,
-          selectionStyle: linkedRange.selectionStyle,
+          id: activeLinkedRange.id,
+          text: activeLinkedRange.text,
+          start: activeLinkedRange.start.offset,
+          end: activeLinkedRange.end.offset,
+          createdAt: activeLinkedRange.createdAt,
+          overlayRectType: activeLinkedRange.overlayRectType,
+          rects: activeLinkedRange.rectsBySelectionId[linkedSelectionId],
+          markerStyle: activeLinkedRange.markerStyle,
+          selectionStyle: activeLinkedRange.selectionStyle,
         };
         onSelect?.(localRange);
         onHighlight?.(localRange);
@@ -645,17 +776,19 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     onSelect?.(range);
     onHighlight?.(range);
     selectRange?.(range.id);
-    clear();
+    clearActiveSelection();
   }, [
     hasSelection,
     selectedText,
     linkedContext,
     linkedRange,
+    sharedActiveRange,
     linkedSelectionId,
     onLinkedDataChange,
     onLinkedSelect,
     onLinkedSelectRange,
     clear,
+    clearActiveSelection,
     startIndex,
     endIndex,
     onSelect,
@@ -673,9 +806,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     ref,
     () => ({
       highlight: handleConfirm,
-      clear,
+      clear: clearActiveSelection,
     }),
-    [handleConfirm, clear],
+    [handleConfirm, clearActiveSelection],
   );
 
   // 容器 mousedown：把 selectionchange 之外的「开始」语义补齐。
@@ -693,6 +826,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         return;
       }
       if (target instanceof Node && selectionPopoverRef.current?.contains(target)) {
+        return;
+      }
+      if (target instanceof Node && popoverRef.current?.contains(target)) {
         return;
       }
 
@@ -729,6 +865,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       const selection = window.getSelection();
       const target = e.target;
       if (target instanceof Node && selectionPopoverRef.current?.contains(target)) {
+        return;
+      }
+      if (target instanceof Node && popoverRef.current?.contains(target)) {
         return;
       }
       mouseSelectingTextRef.current = false;
@@ -792,6 +931,97 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
   }, []);
 
+  // 触摸设备长按检测：代替原生长按选词（因 user-select:none 禁用了原生选区 UI）。
+  // touchstart 后启动计时器，若在 LONG_PRESS_MS 内未发生超过 MOVE_THRESHOLD_PX 的位移，
+  // 判定为长按并通过 selectWordAtPoint 计算单词 Range，再通过 setFromRange 注入 hook state。
+  // 全程不创建原生 Selection，不触发 selectionchange，不出现原生水滴手柄/蓝色高亮。
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (typeof window.matchMedia !== 'function' || !window.matchMedia('(pointer: coarse)').matches) {
+      return;
+    }
+
+    const LONG_PRESS_MS = 450;
+    const MOVE_THRESHOLD_PX = 10;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let startX = 0;
+    let startY = 0;
+    let moved = false;
+    let longPressTriggered = false;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const target = e.target;
+      if (target instanceof Element && target.closest('.hsn-selection-handle')) return;
+      if (target instanceof Node) {
+        if (popoverRef.current?.contains(target)) return;
+        if (selectionPopoverRef.current?.contains(target)) return;
+      }
+      moved = false;
+      longPressTriggered = false;
+
+      const touch = e.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+      timer = setTimeout(() => {
+        timer = null;
+        longPressTriggered = true;
+        const wordRange = selectWordAtPoint(touch.clientX, touch.clientY);
+        if (wordRange) setFromRangeRef.current(wordRange);
+      }, LONG_PRESS_MS);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (timer === null) return;
+      if (e.touches.length !== 1) {
+        clearTimeout(timer);
+        timer = null;
+        return;
+      }
+      const touch = e.touches[0];
+      if (Math.hypot(touch.clientX - startX, touch.clientY - startY) > MOVE_THRESHOLD_PX) {
+        moved = true;
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const handleTouchEnd = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (hasSelectionRef.current && !moved && !longPressTriggered) {
+        clearActiveSelectionRef.current();
+      }
+      moved = false;
+      longPressTriggered = false;
+    };
+
+    const clearTimer = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      moved = false;
+      longPressTriggered = false;
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: true });
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
+    container.addEventListener('touchcancel', clearTimer, { passive: true });
+    return () => {
+      clearTimer();
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', clearTimer);
+    };
+  }, []);
+
   // 当用户开始拖选新文本时（hasSelection 变为 true），自动取消当前选中的高亮 range。
   // 这实现了「当前新选择而又没高亮的选区」与「已选中的高亮 range」互斥的需求。
   useEffect(() => {
@@ -799,6 +1029,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       selectRange?.(null);
     }
   }, [hasSelection, selectRange]);
+
+  useEffect(() => {
+    if (!linkedContext || !hasSelection || !linkedRange) return;
+    if (linkedRange.start.selectionId !== linkedContext.selectionId) return;
+    if (linkedActiveRangeEqual(linkedContext.data.activeRange, linkedRange)) return;
+    onLinkedDataChange?.({ ...linkedContext.data, activeRange: linkedRange, selectedRangeId: null });
+  }, [hasSelection, linkedContext, linkedRange, onLinkedDataChange]);
 
   // 容器点击：用于「点击高亮以选中」的命中测试。
   // 高亮 Overlay 在文字下方，这里读容器坐标并和持久 rect 做矩形包含检测。
@@ -828,18 +1065,18 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
       // 已有文字选区时：点击选区 rect 内部保留选区，点击外部清除文字选择。
       // 替代原先「有原生选区则直接 return」的逻辑，使得点击空白处可取消选区。
-      if (hasSelection) {
+      if (displayHasSelection) {
         const container = containerRef.current;
         if (!container) return;
         const cRect = container.getBoundingClientRect();
         const x = e.clientX - cRect.left;
         const y = e.clientY - cRect.top;
-        for (const r of rects) {
+        for (const r of displayRects) {
           if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
             return; // 点击在活跃选区 rect 内部，保留选区
           }
         }
-        clear(); // 点击在活跃选区 rect 外部，清除文字选择
+        clearActiveSelection(); // 点击在活跃选区 rect 外部，清除文字选择
         return;
       }
 
@@ -861,7 +1098,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         }
       }
     },
-    [selectRange, currentSelectedRangeId, persistedRects, hasSelection, rects, clear],
+    [selectRange, currentSelectedRangeId, persistedRects, displayHasSelection, displayRects, clearActiveSelection],
   );
 
   // 用原生 click 监听挂在容器上；高亮的「点击选中」不是真正的按钮交互，
@@ -943,12 +1180,15 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           dragAnchorRef.current = r ? (which === 'start' ? r.end : r.start) : -1;
         }
       } else {
-        dragAnchorRef.current = which === 'start' ? endIndexRef.current : startIndexRef.current;
-        dragLinkedAnchorRef.current = linkedRange
-          ? which === 'start'
-            ? linkedRange.end
-            : linkedRange.start
-          : null;
+        const activeLinkedRange = linkedRange ?? linkedDataRef.current?.activeRange ?? null;
+        if (activeLinkedRange) {
+          const anchorEndpoint = which === 'start' ? activeLinkedRange.end : activeLinkedRange.start;
+          dragLinkedAnchorRef.current = anchorEndpoint;
+          dragAnchorRef.current = anchorEndpoint.offset;
+        } else {
+          dragAnchorRef.current = which === 'start' ? endIndexRef.current : startIndexRef.current;
+          dragLinkedAnchorRef.current = null;
+        }
       }
       // 在联动模式下同步共享拖拽状态，让所有关联容器都能隐藏对应手柄/Popover。
       const currentLinkedData = linkedDataRef.current;
@@ -1027,6 +1267,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
    * 避免 selectionchange 同步更新 ref 导致锚点漂移。
    */
   useEffect(() => {
+    const isTouch = typeof window.matchMedia === 'function' &&
+      window.matchMedia('(pointer: coarse)').matches;
+
     const onMove = (e: PointerEvent) => {
       const which = dragHandleRef.current;
       if (!which) return;
@@ -1083,10 +1326,15 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           movingEndpoint: linkedMovingEndpoint,
           containers: getRegisteredContainers(),
         });
-        const selection = window.getSelection();
-        if (!linkedDomRange || !selection) return;
-        selection.removeAllRanges();
-        selection.addRange(linkedDomRange);
+        if (!linkedDomRange) return;
+        if (isTouch) {
+          setFromRangeRef.current(linkedDomRange);
+        } else {
+          const selection = window.getSelection();
+          if (!selection) return;
+          selection.removeAllRanges();
+          selection.addRange(linkedDomRange);
+        }
         return;
       }
 
@@ -1149,10 +1397,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       const newRange = createRangeFromOffsets(container, lo, hi);
       if (!newRange) return;
 
-      const sel = window.getSelection();
-      if (!sel) return;
-      sel.removeAllRanges();
-      sel.addRange(newRange);
+      if (isTouch) {
+        setFromRangeRef.current(newRange);
+      } else {
+        const sel = window.getSelection();
+        if (!sel) return;
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+      }
     };
     const onUp = () => {
       if (!dragHandleRef.current && !dragPersistedIdRef.current) return;
@@ -1192,6 +1444,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     // 联动模式下，同一次拖拽/选择在其它关联容器中也应隐藏。
     if (dragHandle || isLinkedSelectedRangeDragging || isSelectingText || isLinkedSelectingText) return null;
     if (!currentSelectedRangeId || !popover) return null;
+    if (linkedContext) {
+      const selectedItem = linkedContext.data.items.find((item) => item.id === currentSelectedRangeId);
+      if (!selectedItem || selectedItem.start.selectionId !== linkedContext.selectionId) return null;
+    }
     const entry = persistedRects.find((p) => p.id === currentSelectedRangeId);
     if (!entry) return null;
     const anchorRects = entry.overlayRectType === 'percent' ? entry.percentRects : entry.rects;
@@ -1203,14 +1459,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     return { x: top.x + top.width / 2, y: top.y, overlayRectType: entry.overlayRectType };
   })();
 
-  const activeSelectionOverlayRectType = linkedContext ? linkedOverlayRectType : legacyOverlayRectType;
   // 百分比坐标只在 rects 变化（新选区）时计算一次，避免缩放导致容器 BCR 变化后重算出漂移的百分比值
   const activePercentRects = useMemo(() => {
+    if (!hasSelection && sharedActiveRectGroup) return sharedActiveRectGroup.percentRects;
     const container = containerRef.current;
-    if (!container || activeSelectionOverlayRectType !== 'percent') return [];
-    return pixelRectsToPercentRects(rects, container);
+    if (!container || displayActiveOverlayRectType !== 'percent') return [];
+    return pixelRectsToPercentRects(displayRects, container);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rects, activeSelectionOverlayRectType]);
+  }, [displayRects, displayActiveOverlayRectType, hasSelection, sharedActiveRectGroup]);
 
   // 计算「选区 Popover」锚点：活跃选区（未高亮）最顶部矩形的水平中点 + 顶边。
   // 与 popoverAnchor 互斥（活跃选区时 selectedRangeId 必为 null）。
@@ -1218,16 +1474,19 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     // 拖拽 range handle 或鼠标选择文本期间隐藏选区 Popover，避免遮挡视线或位置跳动。
     // 联动模式下，同一次拖拽/选择在其它关联容器中也应隐藏。
     if (dragHandle || isLinkedActiveSelectionDragging || isSelectingText || isLinkedSelectingText) return null;
-    if (!hasSelection || !selectionPopover || rects.length === 0) {
+    if (!displayHasSelection || !selectionPopover || displayRects.length === 0) {
       return null;
     }
-    const anchorRects = activeSelectionOverlayRectType === 'percent' ? activePercentRects : rects;
+    if (linkedContext && activeRangeForDisplay?.start.selectionId !== linkedContext.selectionId) {
+      return null;
+    }
+    const anchorRects = displayActiveOverlayRectType === 'percent' ? activePercentRects : displayRects;
     if (anchorRects.length === 0) return null;
     let top = anchorRects[0];
     for (const r of anchorRects) {
       if (r.y < top.y) top = r;
     }
-    return { x: top.x + top.width / 2, y: top.y, overlayRectType: activeSelectionOverlayRectType };
+    return { x: top.x + top.width / 2, y: top.y, overlayRectType: displayActiveOverlayRectType };
   })();
 
   function buildPositionStyleValue(value: number, overlayRectType: OverlayRectType): string {
@@ -1354,9 +1613,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           });
         })}
 
-        {hasSelection &&
-          activeSelectionOverlayRectType === 'px' &&
-          rects.map((r) => {
+        {displayHasSelection &&
+          displayActiveOverlayRectType === 'px' &&
+          displayRects.map((r) => {
           const activeSvgProps: { fill?: string; stroke?: string; strokeWidth?: number | string } = styleToSvgRectProps(activeSelectionStyle);
           return (
             <rect
@@ -1377,7 +1636,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       </svg>
 
       {(persistedRects.some((group) => group.overlayRectType === 'percent') ||
-        (hasSelection && activeSelectionOverlayRectType === 'percent')) && (
+        (displayHasSelection && displayActiveOverlayRectType === 'percent')) && (
         <div className="hsn-selection-percent-overlay" aria-hidden="true" role="presentation">
           {persistedRects.map((group) => {
             const { id, overlayRectType: rectType, percentRects } = group;
@@ -1402,8 +1661,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             });
           })}
 
-          {hasSelection &&
-            activeSelectionOverlayRectType === 'percent' &&
+          {displayHasSelection &&
+            displayActiveOverlayRectType === 'percent' &&
             activePercentRects.map((r) => (
               <div
                 key={`active-${r.x},${r.y},${r.width},${r.height}`}
@@ -1464,26 +1723,26 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         selectionchange → hook 重新计算 rects → 手柄位置基于新 rects 自然跟随。
         鼠标驱动的新选择手势期间（mousedown 到 mouseup）隐藏活跃手柄，避免干扰拖选。
       */}
-      {hasSelection &&
-        rects.length > 0 &&
+      {displayHasSelection &&
+        displayRects.length > 0 &&
         !isSelectingText &&
         !isLinkedSelectingText &&
         !dragHandle &&
         !isLinkedActiveSelectionDragging &&
         (() => {
-          const activeHandleRects = activeSelectionOverlayRectType === 'percent' ? activePercentRects : rects;
+          const activeHandleRects = displayActiveOverlayRectType === 'percent' ? activePercentRects : displayRects;
           if (activeHandleRects.length === 0) return null;
           const first = activeHandleRects[0];
           const last = activeHandleRects[activeHandleRects.length - 1];
           const isDraggingActive = !!(dragHandle && !dragPersistedId);
           const showStartHandle =
             !linkedContext ||
-            !linkedRange ||
-            linkedRange.start.selectionId === linkedContext.selectionId;
+            !activeRangeForDisplay ||
+            activeRangeForDisplay.start.selectionId === linkedContext.selectionId;
           const showEndHandle =
             !linkedContext ||
-            !linkedRange ||
-            linkedRange.end.selectionId === linkedContext.selectionId;
+            !activeRangeForDisplay ||
+            activeRangeForDisplay.end.selectionId === linkedContext.selectionId;
           return (
             <>
               {showStartHandle &&
@@ -1496,8 +1755,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('start'),
                   '拖动以调整选区起点',
                   `hsn-selection-handle hsn-selection-handle--start${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(first.x, first.y + first.height / 2, activeSelectionOverlayRectType, activeSelectionStyle),
-                  activeSelectionOverlayRectType,
+                  buildHandleStyle(first.x, first.y + first.height / 2, displayActiveOverlayRectType, activeSelectionStyle),
+                  displayActiveOverlayRectType,
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -1509,14 +1768,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   startHandleDrag('end'),
                   '拖动以调整选区终点',
                   `hsn-selection-handle hsn-selection-handle--end${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
-                  buildHandleStyle(last.x + last.width, last.y + last.height / 2, activeSelectionOverlayRectType, activeSelectionStyle),
-                  activeSelectionOverlayRectType,
+                  buildHandleStyle(last.x + last.width, last.y + last.height / 2, displayActiveOverlayRectType, activeSelectionStyle),
+                  displayActiveOverlayRectType,
                 )}
             </>
           );
         })()}
 
-      {!hasSelection &&
+      {!displayHasSelection &&
         currentSelectedRangeId &&
         !dragHandle &&
         !isLinkedSelectedRangeDragging &&
