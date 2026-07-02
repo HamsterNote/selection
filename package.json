@@ -1,6 +1,6 @@
 {
   "name": "@hamster-note/selection",
-  "version": "0.0.1-beta",
+  "version": "0.0.1-beta.2",
   "description": "React 文本选区组件库，用于 HamsterNote 笔记应用",
   "type": "module",
   "license": "MIT",
