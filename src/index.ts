@@ -42,7 +42,10 @@ export type {
   SelectionHandleType,
   SelectionProps,
   SelectionRange,
+  SelectionRect,
+  SelectionRectPoint,
   SelectionRef,
+  SelectionTool,
   UseTextSelectionResult,
 } from './types';
 export { useTextSelection } from './useTextSelection';

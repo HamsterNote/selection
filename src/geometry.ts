@@ -4,6 +4,7 @@ import type {
   OverlayRectType,
   PercentOverlayRect,
   SelectionRange,
+  SelectionRectPoint,
 } from './types';
 
 /** 将百分比坐标统一到 4 位小数，且只修正极小浮点溢出到 0-100 边界 */
@@ -92,4 +93,88 @@ export function storeRectsForOverlayRectType(
   container: HTMLElement,
 ): OverlayRect[] | PercentOverlayRect[] {
   return overlayRectType === 'px' ? pixelRects : pixelRectsToPercentRects(pixelRects, container);
+}
+
+// ---------------------------------------------------------------------------
+// 单矩形几何辅助函数（selection-rect-tool 专用）
+// ---------------------------------------------------------------------------
+
+/**
+ * 将一个点（通常是 pointer 坐标转成容器局部坐标后）钳制到容器有效区域内。
+ * 使用容器的 getBoundingClientRect() 宽高作为边界。
+ */
+export function clampPointToContainer(
+  point: { x: number; y: number },
+  container: HTMLElement,
+): { x: number; y: number } {
+  const { width, height } = container.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(point.x, width)),
+    y: Math.max(0, Math.min(point.y, height)),
+  };
+}
+
+/**
+ * 将两个任意对角点归一化为一个非负 width/height 的 OverlayRect，
+ * x/y 始终位于左上角。
+ */
+export function normalizeRectFromPoints(
+  start: SelectionRectPoint,
+  end: SelectionRectPoint,
+): OverlayRect {
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  return {
+    x,
+    y,
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y),
+  };
+}
+
+/**
+ * 判断一个像素矩形是否足够大，值得创建为选区矩形。
+ * 宽或高小于 2px 时返回 false（避免用户无意间点击产生无意义的微矩形）。
+ */
+export function isRectCreatable(rect: OverlayRect): boolean {
+  return rect.width >= 2 && rect.height >= 2;
+}
+
+/**
+ * 将单个像素矩形转换为百分比矩形（相对容器宽高归一化到 0-100）。
+ * 内部复用 pixelRectsToPercentRects 的归一化逻辑。
+ */
+export function pixelRectToPercentRect(
+  pixelRect: OverlayRect,
+  container: HTMLElement,
+): PercentOverlayRect {
+  const results = pixelRectsToPercentRects([pixelRect], container);
+  // 零尺寸容器会返回空数组，此处做防御
+  return results[0] ?? { x: 0, y: 0, width: 0, height: 0 };
+}
+
+/**
+ * 将单个百分比矩形还原为当前容器尺寸的像素矩形。
+ * 内部复用 percentRectsToPixelRects 的反归一化逻辑。
+ */
+export function percentRectToPixelRect(
+  percentRect: PercentOverlayRect,
+  container: HTMLElement,
+): OverlayRect {
+  const results = percentRectsToPixelRects([percentRect], container);
+  return results[0] ?? { x: 0, y: 0, width: 0, height: 0 };
+}
+
+/**
+ * 按 overlayRectType 存储单个像素矩形：
+ * - `'px'`：原样返回像素矩形；
+ * - `'percent'`：先转换为百分比矩形再返回。
+ */
+export function storeRectForOverlayRectType(
+  pixelRect: OverlayRect,
+  overlayRectType: OverlayRectType,
+  container: HTMLElement,
+): OverlayRect | PercentOverlayRect {
+  if (overlayRectType === 'px') return pixelRect;
+  return pixelRectToPercentRect(pixelRect, container);
 }

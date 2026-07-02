@@ -5,7 +5,16 @@
  * 测试 pixelRectsToPercentRects / percentRectsToPixelRects 的纯数学行为，
  * 不依赖 DOM 布局：通过 mock HTMLElement.getBoundingClientRect() 提供固定尺寸。
  */
-import { pixelRectsToPercentRects, percentRectsToPixelRects } from './geometry';
+import {
+  pixelRectsToPercentRects,
+  percentRectsToPixelRects,
+  clampPointToContainer,
+  normalizeRectFromPoints,
+  isRectCreatable,
+  pixelRectToPercentRect,
+  percentRectToPixelRect,
+  storeRectForOverlayRectType,
+} from './geometry';
 import type { OverlayRect, PercentOverlayRect } from './types';
 
 // ---------------------------------------------------------------------------
@@ -165,5 +174,154 @@ describe('percentRectsToPixelRects', () => {
     expect(resizedPixels[0]!.y).toBe(120);
     expect(resizedPixels[0]!.width).toBe(200);
     expect(resizedPixels[0]!.height).toBe(60);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 单矩形几何辅助函数测试（selection-rect-tool）
+// ---------------------------------------------------------------------------
+
+describe('normalizeRectFromPoints', () => {
+  it('正向拖拽 (40,30)->(120,90) 归一化为 {x:40,y:30,width:80,height:60}', () => {
+    const rect = normalizeRectFromPoints({ x: 40, y: 30 }, { x: 120, y: 90 });
+    expect(rect).toEqual({ x: 40, y: 30, width: 80, height: 60 });
+  });
+
+  it('反向拖拽 (120,90)->(40,30) 归一化到同一个矩形', () => {
+    const rect = normalizeRectFromPoints({ x: 120, y: 90 }, { x: 40, y: 30 });
+    expect(rect).toEqual({ x: 40, y: 30, width: 80, height: 60 });
+  });
+});
+
+describe('clampPointToContainer', () => {
+  const container = makeContainer(0, 0, 400, 300);
+
+  it('容器内的点不被修改', () => {
+    const clamped = clampPointToContainer({ x: 200, y: 150 }, container);
+    expect(clamped).toEqual({ x: 200, y: 150 });
+  });
+
+  it('超出右边界的点被钳制到容器宽度', () => {
+    const clamped = clampPointToContainer({ x: 500, y: 150 }, container);
+    expect(clamped).toEqual({ x: 400, y: 150 });
+  });
+
+  it('超出下边界的点被钳制到容器高度', () => {
+    const clamped = clampPointToContainer({ x: 200, y: 400 }, container);
+    expect(clamped).toEqual({ x: 200, y: 300 });
+  });
+
+  it('负坐标被钳制到 0', () => {
+    const clamped = clampPointToContainer({ x: -10, y: -5 }, container);
+    expect(clamped).toEqual({ x: 0, y: 0 });
+  });
+
+  it('同时超出多个边界的点被正确钳制', () => {
+    const clamped = clampPointToContainer({ x: -5, y: 500 }, container);
+    expect(clamped).toEqual({ x: 0, y: 300 });
+  });
+});
+
+describe('isRectCreatable', () => {
+  it('宽高均 >= 2 时返回 true', () => {
+    expect(isRectCreatable({ x: 0, y: 0, width: 80, height: 60 })).toBe(true);
+  });
+
+  it('恰好 2x2 时返回 true', () => {
+    expect(isRectCreatable({ x: 0, y: 0, width: 2, height: 2 })).toBe(true);
+  });
+
+  it('宽度 < 2 时返回 false', () => {
+    expect(isRectCreatable({ x: 0, y: 0, width: 1, height: 60 })).toBe(false);
+  });
+
+  it('高度 < 2 时返回 false', () => {
+    expect(isRectCreatable({ x: 0, y: 0, width: 60, height: 1 })).toBe(false);
+  });
+
+  it('宽高均为 0 时返回 false', () => {
+    expect(isRectCreatable({ x: 0, y: 0, width: 0, height: 0 })).toBe(false);
+  });
+});
+
+describe('pixelRectToPercentRect / percentRectToPixelRect（单矩形）', () => {
+  const container = makeContainer(0, 0, 400, 300);
+
+  it('pixelRectToPercentRect: (40,30,80,60) → (10,10,20,20)', () => {
+    const pct = pixelRectToPercentRect({ x: 40, y: 30, width: 80, height: 60 }, container);
+    expect(pct).toEqual({ x: 10, y: 10, width: 20, height: 20 });
+  });
+
+  it('percentRectToPixelRect: (10,10,20,20) → (40,30,80,60)', () => {
+    const px = percentRectToPixelRect({ x: 10, y: 10, width: 20, height: 20 }, container);
+    expect(px).toEqual({ x: 40, y: 30, width: 80, height: 60 });
+  });
+
+  it('round-trip: pixel → percent → pixel 完全还原', () => {
+    const original: OverlayRect = { x: 40, y: 30, width: 80, height: 60 };
+    const pct = pixelRectToPercentRect(original, container);
+    const restored = percentRectToPixelRect(pct, container);
+    expect(restored).toEqual(original);
+  });
+
+  it('零尺寸容器返回 fallback 零值矩形', () => {
+    const zeroContainer = makeContainer(0, 0, 0, 0);
+    const pct = pixelRectToPercentRect({ x: 10, y: 10, width: 10, height: 10 }, zeroContainer);
+    expect(pct).toEqual({ x: 0, y: 0, width: 0, height: 0 });
+  });
+});
+
+describe('storeRectForOverlayRectType', () => {
+  const container = makeContainer(0, 0, 400, 300);
+  const pixelRect: OverlayRect = { x: 40, y: 30, width: 80, height: 60 };
+
+  it('overlayRectType=px 时原样返回像素矩形', () => {
+    const result = storeRectForOverlayRectType(pixelRect, 'px', container);
+    expect(result).toEqual({ x: 40, y: 30, width: 80, height: 60 });
+  });
+
+  it('overlayRectType=percent 时返回百分比矩形', () => {
+    const result = storeRectForOverlayRectType(pixelRect, 'percent', container);
+    expect(result).toEqual({ x: 10, y: 10, width: 20, height: 20 });
+  });
+});
+
+describe('完整拖拽流程: clamp + normalize + store', () => {
+  const container = makeContainer(0, 0, 400, 300);
+
+  it('正向拖拽 (40,30)->(120,90) 产生可创建的 px/percent 矩形', () => {
+    const clampedStart = clampPointToContainer({ x: 40, y: 30 }, container);
+    const clampedEnd = clampPointToContainer({ x: 120, y: 90 }, container);
+    const rect = normalizeRectFromPoints(clampedStart, clampedEnd);
+
+    expect(rect).toEqual({ x: 40, y: 30, width: 80, height: 60 });
+    expect(isRectCreatable(rect)).toBe(true);
+
+    expect(storeRectForOverlayRectType(rect, 'px', container)).toEqual({
+      x: 40, y: 30, width: 80, height: 60,
+    });
+    expect(storeRectForOverlayRectType(rect, 'percent', container)).toEqual({
+      x: 10, y: 10, width: 20, height: 20,
+    });
+  });
+
+  it('反向拖拽 (120,90)->(40,30) 产生相同的矩形', () => {
+    const rect = normalizeRectFromPoints({ x: 120, y: 90 }, { x: 40, y: 30 });
+    expect(rect).toEqual({ x: 40, y: 30, width: 80, height: 60 });
+    expect(isRectCreatable(rect)).toBe(true);
+  });
+
+  it('超出边界的拖拽先钳制再归一化', () => {
+    const start = clampPointToContainer({ x: -10, y: -5 }, container);
+    const end = clampPointToContainer({ x: 500, y: 350 }, container);
+    const rect = normalizeRectFromPoints(start, end);
+
+    expect(rect).toEqual({ x: 0, y: 0, width: 400, height: 300 });
+    expect(isRectCreatable(rect)).toBe(true);
+  });
+
+  it('<2px 拖拽不可创建', () => {
+    const rect = normalizeRectFromPoints({ x: 40, y: 30 }, { x: 41, y: 30 });
+    expect(isRectCreatable(rect)).toBe(false);
   });
 });

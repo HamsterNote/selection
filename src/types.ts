@@ -7,6 +7,48 @@ import type { CSSProperties, PointerEvent, ReactNode } from 'react';
  */
 export type OverlayRectType = 'px' | 'percent';
 
+// ---------------------------------------------------------------------------
+// 矩形选择工具（Rect Selection Tool）类型
+// ---------------------------------------------------------------------------
+
+/** 选择工具模式：'text' 为文本选择，'rect' 为矩形框选 */
+export type SelectionTool = 'text' | 'rect';
+
+/** 矩形框选的起止点坐标（相对容器左上角） */
+export interface SelectionRectPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * 矩形框选数据结构。
+ * 与 `SelectionRange`（文本选区）完全独立，不包含字符偏移或文本内容。
+ */
+export interface SelectionRect {
+  /** 唯一标识 */
+  id: string;
+  /** 创建时间戳 */
+  createdAt: number;
+  /** 当前矩形的 Overlay 矩形坐标类型 */
+  overlayRectType: OverlayRectType;
+  /** 框选起点坐标 */
+  start: SelectionRectPoint;
+  /** 框选终点坐标 */
+  end: SelectionRectPoint;
+  /**
+   * 框选计算后的最终矩形。
+   * 当 `overlayRectType === 'px'` 时为像素坐标；
+   * 当 `overlayRectType === 'percent'` 时为相对 selection-container 的 0-100 百分比坐标。
+   */
+  rect: OverlayRect | PercentOverlayRect;
+  /** 联动模式下所属文本区域标识；独立模式不使用 */
+  selectionId?: string;
+  /** 创建该矩形时确认的持久高亮样式快照 */
+  markerStyle?: CSSProperties;
+  /** 创建该矩形时确认的活跃选区样式快照 */
+  selectionStyle?: CSSProperties;
+}
+
 /**
  * 选区数据结构
  * 表示一段被用户选中/高亮的文本
@@ -219,6 +261,18 @@ export interface HandleRenderProps {
   /** 当 owner 为 persisted-range 时对应的 range id；active-selection 时为 null */
   rangeId: string | null;
   /**
+   * 手柄所属目标类型。
+   * 文本选区手柄传 `'text'`（兼容旧版），矩形框选手柄传 `'rect'`。
+   * 外部组件可据此分支渲染不同样式。
+   */
+  target: 'text' | 'rect';
+  /**
+   * 当 target 为 `'rect'` 且 owner 为 persisted-range 时对应的矩形 id；
+   * target 为 `'rect'` 且 owner 为 active-selection 时为 null；
+   * target 为 `'text'` 时始终为 null。
+   */
+  rectId: string | null;
+  /**
    * 手柄在容器坐标系中的位置。
    * 单位由 `positionUnit` 指定：当 overlay rect type 为 'px' 时为像素坐标，
    * 当 overlay rect type 为 'percent' 时为 0-100 百分比坐标。
@@ -307,8 +361,23 @@ export interface SelectionRef {
    * 内部会构造 SelectionRange，依次触发 onSelect 与 onHighlight 回调，
    * 然后清除当前选区状态。
    * 无有效选区时为空操作。
+   *
+   * 此方法为文本选区专用，与 tool 模式无关——始终执行文本高亮。
+   * 如需根据当前 tool 模式自动分发，请使用 `confirm()`。
    */
   highlight: () => void;
+  /**
+   * 通用确认：根据当前 tool 模式分发。
+   * - `tool='text'`（默认）时等价于 `highlight()`
+   * - `tool='rect'` 时等价于 `confirmRect()`
+   */
+  confirm: () => void;
+  /**
+   * 矩形确认：将当前活跃的矩形框选确认为一个持久 SelectionRect。
+   * 内部会触发 onCreateRect 回调，然后清除活跃矩形状态。
+   * 无活跃矩形时为空操作。
+   */
+  confirmRect: () => void;
   /** 清除当前选区状态（同时清除浏览器原生 selection 与内部 Overlay） */
   clear: () => void;
 }
@@ -386,6 +455,24 @@ export interface SelectionProps {
    * 调用方应据此更新其受控 ranges 列表中对应条目的字段。
    */
   onUpdateRange?: (range: SelectionRange) => void;
+
+  // -----------------------------------------------------------------------
+  // 矩形框选（Rect Selection）props —— 与文本选区完全独立
+  // -----------------------------------------------------------------------
+
+  /** 当前选择工具模式；默认 'text'，传 'rect' 启用矩形框选 */
+  tool?: SelectionTool;
+  /** 当前已存在的矩形框选列表（受控） */
+  rects?: SelectionRect[];
+  /** 当前被选中的矩形框选 ID（受控属性）；null 表示未选中任何矩形 */
+  selectedRectId?: string | null;
+  /** 当用户确认一个新矩形框选时触发 */
+  onCreateRect?: (rect: SelectionRect) => void;
+  /** 当用户选中/取消选中某个矩形框选时触发 */
+  onSelectRect?: (id: string | null) => void;
+  /** 当用户拖动矩形手柄调整后触发 */
+  onUpdateRect?: (rect: SelectionRect) => void;
+
   /**
    * 已确认的高亮颜色（持久 Range 的 Overlay 颜色），默认半透明黄。
    *
