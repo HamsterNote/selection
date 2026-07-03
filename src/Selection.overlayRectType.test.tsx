@@ -84,6 +84,19 @@ function selectOnly(host: HTMLElement): void {
   });
 }
 
+function stubCoarsePointer(): void {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === '(pointer: coarse)',
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 function selectedRange(onSelect: ReturnType<typeof vi.fn>): SelectionRange {
   const range = onSelect.mock.lastCall?.[0];
   if (range) return range;
@@ -647,6 +660,53 @@ describe('Selection overlayRectType', () => {
     expect(popovers[0]).toHaveTextContent('A');
   });
 
+  it('selection.linked-active-range.blank-click-clears-after-unconsumed-selection-click-skip', () => {
+    // Given: a cross-page active range is visible, and a previous valid mouseup left no matching click behind.
+    mockGeometry();
+    const onChange = vi.fn();
+    const linkedData = {
+      items: [],
+      selectedRangeId: null,
+      selectionOrder: ['page-a', 'page-b'],
+      activeRange: {
+        id: 'active-cross-page',
+        text: 'Deterministic paragraph one.Deterministic paragraph one.',
+        start: { selectionId: 'page-a', offset: 0 },
+        end: { selectionId: 'page-b', offset: 12 },
+        createdAt: 1,
+        overlayRectType: 'percent',
+        rectsBySelectionId: {
+          'page-a': [{ x: 10, y: 10, width: 20, height: 8 }],
+          'page-b': [{ x: 10, y: 10, width: 20, height: 8 }],
+        },
+      },
+    } satisfies LinkedSelectionData;
+
+    const { container } = render(
+      <Selection
+        selectionId="page-a"
+        linkedMode={true}
+        linkedData={linkedData}
+        ranges={[]}
+        onLinkedDataChange={onChange}
+        selectionPopover={<div data-testid="active-popover">A</div>}
+      >
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    installNativeSelection(host);
+
+    act(() => {
+      fireEvent.mouseUp(host, { clientX: 90, clientY: 42 });
+      fireEvent.click(host, { clientX: 200, clientY: 120 });
+    });
+
+    // Then: the first later blank click is not swallowed by the stale skip marker.
+    const finalData = onChange.mock.lastCall?.[0];
+    expect(finalData?.activeRange).toBeNull();
+  });
+
   it('selection.linked-active-range.highlight-keeps-appended-item-in-final-update', () => {
     // Given: linked mobile active range is already shared before confirmation.
     mockGeometry();
@@ -699,16 +759,7 @@ describe('Selection overlayRectType', () => {
   it('selection.mobile-active-selection.tap-inside-container-clears', () => {
     // Given: coarse pointer device with an active selection shown inside the component.
     mockGeometry();
-    vi.stubGlobal('matchMedia', (query: string) => ({
-      matches: query === '(pointer: coarse)',
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    }));
+    stubCoarsePointer();
     const { container } = render(
       <Selection ranges={[]} overlayRectType="percent" selectionPopover={<div data-testid="active-popover">Active</div>}>
         {content()}
@@ -727,5 +778,59 @@ describe('Selection overlayRectType', () => {
     // Then: mobile active selection is cleared from inside the component.
     expect(container.querySelector('[data-testid="active-popover"]')).not.toBeInTheDocument();
     expect(container.querySelectorAll('.hsn-selection-handle')).toHaveLength(0);
+  });
+
+  it('selection.mobile-active-selection.two-finger-touch-preserves-selection', () => {
+    // Given: coarse pointer device with an active selection shown inside the component.
+    mockGeometry();
+    stubCoarsePointer();
+    const { container } = render(
+      <Selection ranges={[]} overlayRectType="percent" selectionPopover={<div data-testid="active-popover">Active</div>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    selectOnly(container);
+
+    // When: user performs a two-finger gesture, then the browser emits its synthetic click.
+    act(() => {
+      fireEvent.touchStart(host, {
+        touches: [
+          { clientX: 160, clientY: 80 },
+          { clientX: 180, clientY: 100 },
+        ],
+      });
+      fireEvent.touchEnd(host, { changedTouches: [{ clientX: 180, clientY: 100 }] });
+      fireEvent.click(host, { clientX: 180, clientY: 100 });
+    });
+
+    // Then: pinch/zoom-style non-single-finger touch does not cancel the active selection.
+    expect(container.querySelector('[data-testid="active-popover"]')).toBeInTheDocument();
+    expect(container.querySelectorAll('.hsn-selection-handle')).toHaveLength(2);
+  });
+
+  it('selection.mobile-active-selection.single-finger-drag-preserves-selection', () => {
+    // Given: coarse pointer device with an active selection shown inside the component.
+    mockGeometry();
+    stubCoarsePointer();
+    const { container } = render(
+      <Selection ranges={[]} overlayRectType="percent" selectionPopover={<div data-testid="active-popover">Active</div>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    selectOnly(container);
+
+    // When: user drags with one finger, then the browser emits its synthetic click.
+    act(() => {
+      fireEvent.touchStart(host, { touches: [{ clientX: 160, clientY: 80 }] });
+      fireEvent.touchMove(host, { touches: [{ clientX: 190, clientY: 110 }] });
+      fireEvent.touchEnd(host, { changedTouches: [{ clientX: 190, clientY: 110 }] });
+      fireEvent.click(host, { clientX: 190, clientY: 110 });
+    });
+
+    // Then: movement is treated as drag/scroll intent, not as a tap-to-clear action.
+    expect(container.querySelector('[data-testid="active-popover"]')).toBeInTheDocument();
+    expect(container.querySelectorAll('.hsn-selection-handle')).toHaveLength(2);
   });
 });

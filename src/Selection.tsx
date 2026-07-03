@@ -81,6 +81,32 @@ type ActiveSelectionRect = {
   rect: OverlayRect;
 };
 
+type ClickPoint = {
+  readonly clientX: number;
+  readonly clientY: number;
+};
+
+type SkipClickToken = {
+  readonly point: ClickPoint | null;
+  readonly expiresAt: number;
+};
+
+const SKIP_CLICK_WINDOW_MS = 750;
+const SKIP_CLICK_TOLERANCE_PX = 4;
+
+function createSkipClickToken(point: ClickPoint | null): SkipClickToken {
+  return { point, expiresAt: Date.now() + SKIP_CLICK_WINDOW_MS };
+}
+
+function skipClickTokenMatches(token: SkipClickToken, event: MouseEvent): boolean {
+  if (Date.now() > token.expiresAt) return false;
+  if (token.point === null) return true;
+  return (
+    Math.abs(event.clientX - token.point.clientX) <= SKIP_CLICK_TOLERANCE_PX &&
+    Math.abs(event.clientY - token.point.clientY) <= SKIP_CLICK_TOLERANCE_PX
+  );
+}
+
 type LinkedModeContext = {
   selectionId: string;
   data: LinkedSelectionData;
@@ -485,14 +511,15 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 被拖动手柄的 DOM 引用：拖动开始时设为手柄元素，用于 onUp 恢复 pointerEvents。
   // 避免依赖 React state → CSS class 链（重渲染延迟导致首帧 pointermove 命中手柄）。
   const dragHandleElRef = useRef<HTMLElement | null>(null);
-  // 拖动结束后设为 true，阻止紧随其后的合成 click 事件误触「点击高亮选中」的 toggle 逻辑。
-  // pointerup → click 顺序由浏览器保证；在 handleContainerClick 中消费一次即清除。
-  const skipClickRef = useRef(false);
+  // 拖动/拖选结束后记录一个短期 click 跳过令牌，只跳过紧随其后、同坐标的合成 click。
+  // 跨区域拖选可能不会在结束容器派发 click；令牌不能残留到用户下一次空白点击。
+  const skipClickRef = useRef<SkipClickToken | null>(null);
   const [activeRect, setActiveRect] = useState<ActiveSelectionRect | null>(null);
   const activeRectRef = useRef<ActiveSelectionRect | null>(null);
   activeRectRef.current = activeRect;
   const rectDrawingStartRef = useRef<SelectionRectPoint | null>(null);
   const rectDrawingPointerIdRef = useRef<number | null>(null);
+  const pendingActiveClearPointRef = useRef<ClickPoint | null>(null);
   const startIndexRef = useRef(startIndex);
   const endIndexRef = useRef(endIndex);
   startIndexRef.current = startIndex;
@@ -1096,12 +1123,20 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         const cRect = container.getBoundingClientRect();
         const x = e.clientX - cRect.left;
         const y = e.clientY - cRect.top;
+        let hitActiveSelection = false;
         for (const r of rectsRef.current) {
           if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
-            e.preventDefault();
-            return;
+            hitActiveSelection = true;
+            break;
           }
         }
+        if (hitActiveSelection) {
+          e.preventDefault();
+          return;
+        }
+        pendingActiveClearPointRef.current = { clientX: e.clientX, clientY: e.clientY };
+      } else {
+        pendingActiveClearPointRef.current = null;
       }
 
       // 开始新的鼠标选择手势：隐藏活跃选区手柄直到 mouseup。
@@ -1125,9 +1160,21 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       if (target instanceof Node && popoverRef.current?.contains(target)) {
         return;
       }
+      const pendingActiveClearPoint = pendingActiveClearPointRef.current;
+      pendingActiveClearPointRef.current = null;
       mouseSelectingTextRef.current = false;
       setIsSelectingText(false);
       if (!(target instanceof Node) || !container.contains(target)) return;
+      if (pendingActiveClearPoint) {
+        const moved =
+          Math.abs(e.clientX - pendingActiveClearPoint.clientX) > SKIP_CLICK_TOLERANCE_PX ||
+          Math.abs(e.clientY - pendingActiveClearPoint.clientY) > SKIP_CLICK_TOLERANCE_PX;
+        if (!moved) {
+          clearActiveSelectionRef.current();
+          setLinkedSelectingText(false);
+          return;
+        }
+      }
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
         setLinkedSelectingText(false);
         return;
@@ -1143,7 +1190,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       }
       // 标记跳过紧随其后的 click 事件，避免 handleContainerClick 将拖拽结束
       // 时鼠标位置判定为「点击在选区 rect 外部」而误清除刚形成的活跃选区。
-      skipClickRef.current = true;
+      skipClickRef.current = createSkipClickToken({ clientX: e.clientX, clientY: e.clientY });
       // 只有真正接收本次 mouseup 的容器才能清理 linked selectingText。
       // 否则 page-a 的 document 监听会在 page-b 前先清理共享状态，触发父级重渲染，
       // 导致 page-b 的 mouseup 监听在同一事件分发中被移除，进而漏掉 end 事件。
@@ -1206,13 +1253,21 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     let startY = 0;
     let moved = false;
     let longPressTriggered = false;
+    // 仅「单指无移动轻触」才允许取消活跃选区；双指缩放/单指拖动都应保留选区。
+    let singleFingerTapCandidate = false;
     // 标记本次 touch 从 Popover/手柄内发起。
     // 若 true，touchend 不干预选区、不触发 start/end、不设置 suppress —— 让合成 click 冒泡到按钮。
     let touchStartedInPopoverOrHandle = false;
 
     const handleTouchStart = (e: TouchEvent) => {
       touchStartedInPopoverOrHandle = false;
-      if (e.touches.length !== 1) return;
+      singleFingerTapCandidate = false;
+      moved = false;
+      longPressTriggered = false;
+      if (e.touches.length !== 1) {
+        skipClickRef.current = createSkipClickToken(null);
+        return;
+      }
       const target = e.target;
       if (target instanceof Element && target.closest('.hsn-selection-handle')) {
         touchStartedInPopoverOrHandle = true;
@@ -1228,8 +1283,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           return;
         }
       }
-      moved = false;
-      longPressTriggered = false;
+      singleFingerTapCandidate = true;
 
       const touch = e.touches[0];
       startX = touch.clientX;
@@ -1252,10 +1306,16 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
 
     const handleTouchMove = (e: TouchEvent) => {
+      if (!singleFingerTapCandidate) {
+        if (e.touches.length !== 1) skipClickRef.current = createSkipClickToken(null);
+        return;
+      }
       if (timer === null) return;
       if (e.touches.length !== 1) {
         clearTimeout(timer);
         timer = null;
+        singleFingerTapCandidate = false;
+        skipClickRef.current = createSkipClickToken(null);
         return;
       }
       const touch = e.touches[0];
@@ -1294,9 +1354,16 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       }
       // 轻触取消选区：已有选区且非长按、非移动 → 清除选区。
       // 修复 Issue 3：点击任意位置取消选中。
-      if (!moved && !longPressTriggered && hasSelectionRef.current) {
+      const isSingleFingerTap = singleFingerTapCandidate && !moved && !longPressTriggered;
+      if (isSingleFingerTap && hasSelectionRef.current) {
         clearActiveSelectionRef.current();
+      } else if (hasSelectionRef.current) {
+        const touch = e.changedTouches[0] ?? null;
+        skipClickRef.current = createSkipClickToken(
+          touch ? { clientX: touch.clientX, clientY: touch.clientY } : null,
+        );
       }
+      singleFingerTapCandidate = false;
       moved = false;
       longPressTriggered = false;
     };
@@ -1306,6 +1373,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         clearTimeout(timer);
         timer = null;
       }
+      singleFingerTapCandidate = false;
       moved = false;
       longPressTriggered = false;
       touchStartedInPopoverOrHandle = false;
@@ -1336,6 +1404,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     if (!linkedContext || !hasSelection || !linkedRange) return;
     if (linkedRange.start.selectionId !== linkedContext.selectionId) return;
     if (linkedActiveRangeEqual(linkedContext.data.activeRange, linkedRange)) return;
+    const native = window.getSelection();
+    if (!native || native.isCollapsed || !native.toString().trim()) return;
     onLinkedDataChange?.({ ...linkedContext.data, activeRange: linkedRange, selectedRangeId: null });
   }, [hasSelection, linkedContext, linkedRange, onLinkedDataChange]);
 
@@ -1347,9 +1417,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     (e: MouseEvent) => {
       // 拖拽手柄结束后浏览器合成 click 事件，此处消费 skip 标记并跳过命中测试，
       // 避免拖拽后误触发 toggle 清空 selectedRangeId。
-      if (skipClickRef.current) {
-        skipClickRef.current = false;
-        return;
+      const skipClickToken = skipClickRef.current;
+      if (skipClickToken) {
+        skipClickRef.current = null;
+        if (skipClickTokenMatches(skipClickToken, e)) return;
       }
 
       // 点击来自 Popover 或选区 Popover 内部时，不做命中测试。
@@ -1850,14 +1921,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         sel.addRange(newRange);
       }
     };
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
       if (!dragHandleRef.current && !dragPersistedIdRef.current) return;
       const persistedId = dragPersistedIdRef.current;
       if (dragHandleElRef.current) {
         dragHandleElRef.current.style.pointerEvents = '';
         dragHandleElRef.current = null;
       }
-      skipClickRef.current = true;
+      skipClickRef.current = createSkipClickToken({ clientX: e.clientX, clientY: e.clientY });
       dragHandleRef.current = null;
       dragPersistedIdRef.current = null;
       dragLinkedAnchorRef.current = null;
