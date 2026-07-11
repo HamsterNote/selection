@@ -134,9 +134,19 @@ export default function App() {
   const handleLinkedDataChange = useCallback(
     (next: LinkedSelectionData) => {
       setOverallData({ ...next, overlayRectType: next.overlayRectType ?? overlayRectType });
+      if (next.selectedRangeId !== null) {
+        setLegacySelectedId(null);
+        setSelectedRectId(null);
+      }
     },
     [overlayRectType],
   );
+
+  const clearLinkedSelectedRange = useCallback(() => {
+    setOverallData((prev) =>
+      prev.selectedRangeId === null ? prev : { ...prev, selectedRangeId: null },
+    );
+  }, []);
 
   /**
    * onLinkedSelect：联动模式下确认高亮时触发（已在 onLinkedDataChange 中完成 items 追加）。
@@ -179,7 +189,11 @@ export default function App() {
    * 删除选中项时也需清空 selectedRangeId。
    */
   const handleLinkedSelectRange = useCallback((id: string | null) => {
-    setOverallData((prev) => ({ ...prev, selectedRangeId: id }));
+    setOverallData((prev) =>
+      prev.selectedRangeId === id ? prev : { ...prev, selectedRangeId: id },
+    );
+    setLegacySelectedId(null);
+    setSelectedRectId(null);
   }, []);
 
   // ─────────────────────────────────────────────────────────────
@@ -216,8 +230,10 @@ export default function App() {
   }, []);
 
   const handleLegacySelectRange = useCallback((id: string | null) => {
+    clearLinkedSelectedRange();
     setLegacySelectedId(id);
-  }, []);
+    setSelectedRectId(null);
+  }, [clearLinkedSelectedRange]);
 
   const handleLegacyUpdateRange = useCallback((updated: SelectionRange) => {
     setLegacyRanges((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
@@ -240,8 +256,10 @@ export default function App() {
   }, []);
 
   const handleSelectRect = useCallback((id: string | null) => {
+    clearLinkedSelectedRange();
+    setLegacySelectedId(null);
     setSelectedRectId(id);
-  }, []);
+  }, [clearLinkedSelectedRange]);
 
   const handleUpdateRect = useCallback((rect: SelectionRect) => {
     setRects((prev) => prev.map((r) => (r.id === rect.id ? rect : r)));

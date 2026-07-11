@@ -344,6 +344,29 @@ describe('Selection text and rect tool compatibility', () => {
     expect(onSelectRect).toHaveBeenCalledWith(null);
   });
 
+  it('selection.text-active.effect-clears-selected-rect', () => {
+    // Given: a rect stays selected until a real text selection becomes active.
+    mockContainerGeometry();
+    const onSelectRect = vi.fn();
+    const { container } = render(
+      <Selection
+        ranges={[]}
+        tool="text"
+        rects={[mockPersistedPxRect]}
+        selectedRectId="rect-1"
+        onSelectRect={onSelectRect}
+      >
+        {content()}
+      </Selection>,
+    );
+
+    // When: the user completes a text selection gesture.
+    selectText(selectionContainer(container));
+
+    // Then: the text-active effect also clears the selected rect owner.
+    expect(onSelectRect).toHaveBeenCalledWith(null);
+  });
+
   it('selection.linked-rect.create-does-not-corrupt-linked-items', () => {
     // Given: linked mode contains one text item and rect tool is active.
     mockContainerGeometry();
@@ -425,6 +448,35 @@ describe('Selection rect tool active drawing', () => {
     expect(rect).toHaveAttribute('y', '30');
     expect(rect).toHaveAttribute('width', '80');
     expect(rect).toHaveAttribute('height', '60');
+    expect(container.querySelector('.hsn-selection-popover')).toBeInTheDocument();
+  });
+
+  it('selection.rect-draft.hides-selection-popover-until-pointerup', () => {
+    // Given: rect tool uses the active selection popover path.
+    mockContainerGeometry();
+    const { container } = render(
+      <Selection ranges={[]} tool="rect" selectionPopover={<button type="button">Confirm</button>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+
+    // When: the drag has started but not finished yet.
+    act(() => {
+      dispatchPointer(host, 'pointerdown', 1, 40, 30);
+      dispatchPointer(document, 'pointermove', 1, 120, 90);
+    });
+
+    // Then: the active rect is visible but the popover remains hidden during drawing.
+    expect(container.querySelector('svg rect.hsn-selection-rect--active')).toBeInTheDocument();
+    expect(container.querySelector('.hsn-selection-popover')).not.toBeInTheDocument();
+
+    // When: the pointer is released.
+    act(() => {
+      dispatchPointer(document, 'pointerup', 1, 120, 90);
+    });
+
+    // Then: the popover appears for the completed active rect.
     expect(container.querySelector('.hsn-selection-popover')).toBeInTheDocument();
   });
 
@@ -634,7 +686,6 @@ describe('Selection rect tool handles', () => {
 
     renderHandle.mockClear();
 
-    // Active drawing -> 2 handles
     const container = selectionContainer(baseElement);
     
     renderHandle.mockClear();
@@ -655,6 +706,7 @@ describe('Selection rect tool handles', () => {
     act(() => {
       dispatchPointer(container, 'pointerdown', 1, 200, 200);
       dispatchPointer(document, 'pointermove', 1, 250, 280);
+      dispatchPointer(document, 'pointerup', 1, 250, 280);
     });
     
     const calls = renderHandle.mock.calls;
@@ -851,6 +903,55 @@ describe('Selection rect tool handles', () => {
     act(() => {
       dispatchPointer(document, 'pointerup', 2, 0, 0);
     });
+  });
+
+  it('linked selected rect renders handles only in its owning container', () => {
+    const linkedData = {
+      items: [],
+      selectedRangeId: null,
+      selectionOrder: ['page-a', 'page-b'],
+    } satisfies LinkedSelectionData;
+    const linkedRect: SelectionRect = {
+      id: 'linked-rect-1',
+      createdAt: 1000,
+      start: { x: 50, y: 50 },
+      end: { x: 150, y: 150 },
+      rect: { x: 50, y: 50, width: 100, height: 100 },
+      overlayRectType: 'px',
+      selectionId: 'page-a',
+    };
+
+    const { container } = render(
+      <>
+        <Selection
+          ranges={[]}
+          tool="rect"
+          selectionId="page-a"
+          linkedMode={true}
+          linkedData={linkedData}
+          rects={[linkedRect]}
+          selectedRectId="linked-rect-1"
+        >
+          <div>A</div>
+        </Selection>
+        <Selection
+          ranges={[]}
+          tool="rect"
+          selectionId="page-b"
+          linkedMode={true}
+          linkedData={linkedData}
+          rects={[linkedRect]}
+          selectedRectId="linked-rect-1"
+        >
+          <div>B</div>
+        </Selection>
+      </>,
+    );
+
+    const hosts = container.querySelectorAll('.hsn-selection-container');
+    expect(hosts).toHaveLength(2);
+    expect(hosts[0]?.querySelectorAll('.hsn-selection-handle-rect')).toHaveLength(2);
+    expect(hosts[1]?.querySelectorAll('.hsn-selection-handle-rect')).toHaveLength(0);
   });
 });
 

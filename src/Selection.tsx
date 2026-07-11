@@ -536,6 +536,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const [activeRect, setActiveRect] = useState<ActiveSelectionRect | null>(null);
   const activeRectRef = useRef<ActiveSelectionRect | null>(null);
   activeRectRef.current = activeRect;
+  const [isDrawingRect, setIsDrawingRect] = useState(false);
   const rectDrawingStartRef = useRef<SelectionRectPoint | null>(null);
   const rectDrawingPointerIdRef = useRef<number | null>(null);
   const pendingActiveClearPointRef = useRef<ClickPoint | null>(null);
@@ -612,6 +613,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const clearActiveRect = useCallback(() => {
     rectDrawingStartRef.current = null;
     rectDrawingPointerIdRef.current = null;
+    setIsDrawingRect(false);
     setActiveRect(null);
   }, []);
 
@@ -661,21 +663,16 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
   }, [activeRect, activeRectOverlayRectType]);
   const activeRangeForDisplay = linkedRange ?? sharedActiveRange;
-  const textDisplayHasSelection = isTextTool && (hasSelection || sharedActiveRectGroup !== null);
-  const displayHasSelection = textDisplayHasSelection || activeSelectionRectGroup !== null;
+  const hasActiveTextSelection = isTextTool && (hasSelection || sharedActiveRectGroup !== null);
   const displayRects = useMemo(
-    () =>
-      activeSelectionRectGroup?.rects ??
-      (hasSelection ? rects : (sharedActiveRectGroup?.rects ?? [])),
-    [activeSelectionRectGroup?.rects, hasSelection, rects, sharedActiveRectGroup?.rects],
+    () => (hasSelection ? rects : (sharedActiveRectGroup?.rects ?? [])),
+    [hasSelection, rects, sharedActiveRectGroup?.rects],
   );
   const displayActiveOverlayRectType =
-    activeSelectionRectGroup?.overlayRectType ??
-    sharedActiveRectGroup?.overlayRectType ??
-    activeSelectionOverlayRectType;
+    sharedActiveRectGroup?.overlayRectType ?? activeSelectionOverlayRectType;
   // 桥接 ref：容器 mousedown 监听需要读取最新 hasSelection / rects，但 effect 不重注册。
-  const hasSelectionRef = useRef(displayHasSelection);
-  hasSelectionRef.current = displayHasSelection;
+  const hasSelectionRef = useRef(hasActiveTextSelection);
+  hasSelectionRef.current = hasActiveTextSelection;
   const clearActiveSelectionRef = useRef(clearActiveSelection);
   clearActiveSelectionRef.current = clearActiveSelection;
   const rectsRef = useRef(displayRects);
@@ -1086,6 +1083,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       clearActiveSelectionRef.current();
       selectRange?.(null);
       onSelectRect?.(null);
+      setIsDrawingRect(true);
       rectDrawingStartRef.current = start;
       rectDrawingPointerIdRef.current = event.pointerId;
       setIsSelectingText(false);
@@ -1132,6 +1130,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       const end = pointFromPointer(event);
       rectDrawingStartRef.current = null;
       rectDrawingPointerIdRef.current = null;
+      setIsDrawingRect(false);
       setIsSelectingText(false);
       mouseSelectingTextRef.current = false;
       setLinkedSelectingText?.(false);
@@ -1494,8 +1493,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   useEffect(() => {
     if (hasSelection) {
       selectRange?.(null);
+      onSelectRect?.(null);
     }
-  }, [hasSelection, selectRange]);
+  }, [hasSelection, onSelectRect, selectRange]);
 
   useEffect(() => {
     if (!linkedContext || !hasSelection || !linkedRange) return;
@@ -1543,7 +1543,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
       // 已有活跃选区时：drag 结束后的合成 click 会被 skip token 吞掉；
       // 其他 click 都代表用户显式取消选中，不再区分点击点是否落在 rect 内。
-      if (displayHasSelection) {
+      if (hasActiveTextSelection) {
         clearActiveSelection();
         return;
       }
@@ -1590,7 +1590,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       selectRange,
       currentSelectedRangeId,
       persistedRects,
-      displayHasSelection,
+      hasActiveTextSelection,
       clearActiveSelection,
       activeRect,
       persistedSelectionRects,
@@ -2152,7 +2152,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const selectionPopoverAnchor = (() => {
     // 拖拽 range handle 或鼠标选择文本期间隐藏选区 Popover，避免遮挡视线或位置跳动。
     // 联动模式下，同一次拖拽/选择在其它关联容器中也应隐藏。
-    if (dragHandle || isLinkedActiveSelectionDragging || isSelectingText || isLinkedSelectingText)
+    if (
+      dragHandle ||
+      isLinkedActiveSelectionDragging ||
+      isSelectingText ||
+      isLinkedSelectingText ||
+      isDrawingRect
+    )
       return null;
 
     if (activeRect && selectionPopover) {
@@ -2173,7 +2179,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       }
     }
 
-    if (!displayHasSelection || !selectionPopover || displayRects.length === 0) {
+    if (!hasActiveTextSelection || !selectionPopover || displayRects.length === 0) {
       return null;
     }
     if (
@@ -2374,7 +2380,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           });
         })}
 
-        {displayHasSelection &&
+        {hasActiveTextSelection &&
           displayActiveOverlayRectType === 'px' &&
           displayRects.map((r) => {
             const activeSvgProps: {
@@ -2416,7 +2422,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
       {(persistedRects.some((group) => group.overlayRectType === 'percent') ||
         persistedSelectionRects.some((group) => group.overlayRectType === 'percent') ||
-        (displayHasSelection && displayActiveOverlayRectType === 'percent')) && (
+        (hasActiveTextSelection && displayActiveOverlayRectType === 'percent') ||
+        (activeRect && activeRectOverlayRectType === 'percent')) && (
         <div className="hsn-selection-percent-overlay" aria-hidden="true" role="presentation">
           {persistedRects.map((group) => {
             const { id, overlayRectType: rectType, percentRects } = group;
@@ -2474,11 +2481,28 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             });
           })}
 
-          {displayHasSelection &&
+          {hasActiveTextSelection &&
             displayActiveOverlayRectType === 'percent' &&
             activePercentRects.map((r) => (
               <div
                 key={`active-${r.x},${r.y},${r.width},${r.height}`}
+                className="hsn-selection-percent-rect hsn-selection-percent-rect-active"
+                style={buildPercentRectStyle(
+                  {
+                    left: `${r.x}%`,
+                    top: `${r.y}%`,
+                    width: `${r.width}%`,
+                    height: `${r.height}%`,
+                  },
+                  activeSelectionStyle,
+                )}
+              />
+            ))}
+          {activeRect &&
+            activeRectOverlayRectType === 'percent' &&
+            activeSelectionRectGroup?.percentRects.map((r) => (
+              <div
+                key={`active-rect-${r.x},${r.y},${r.width},${r.height}`}
                 className="hsn-selection-percent-rect hsn-selection-percent-rect-active"
                 style={buildPercentRectStyle(
                   {
@@ -2547,94 +2571,93 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         selectionchange → hook 重新计算 rects → 手柄位置基于新 rects 自然跟随。
         鼠标驱动的新选择手势期间（mousedown 到 mouseup）隐藏活跃手柄，避免干扰拖选。
       */}
-      {((displayHasSelection && !activeSelectionRectGroup && displayRects.length > 0) ||
-        (isRectTool && activeRect)) &&
-        (!isSelectingText || isRectTool) &&
+      {activeRect &&
+        !isDrawingRect &&
         !isLinkedSelectingText &&
-        (!dragHandle || (isRectTool && !dragPersistedId)) &&
-        (!isLinkedSelectedRangeDragging || isRectTool) &&
+        !dragPersistedId &&
+        (() => {
+          const isDraggingActive = !!(dragHandle && !dragPersistedId);
+          const container = containerRef.current;
+
+          let displayStart = activeRect.start;
+          let displayEnd = activeRect.end;
+
+          if (activeRectOverlayRectType === 'percent' && container) {
+            const { width, height } = container.getBoundingClientRect();
+            displayStart = {
+              x: (displayStart.x / width) * 100,
+              y: (displayStart.y / height) * 100,
+            };
+            displayEnd = {
+              x: (displayEnd.x / width) * 100,
+              y: (displayEnd.y / height) * 100,
+            };
+          }
+
+          return (
+            <>
+              {renderSingleHandle(
+                'start',
+                'active-selection',
+                null,
+                { x: displayStart.x, y: displayStart.y },
+                isDraggingActive,
+                startRectHandleDrag('start'),
+                '拖动以调整选区起点',
+                `hsn-selection-handle hsn-selection-handle--start hsn-selection-handle-rect${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
+                buildHandleStyle(
+                  displayStart.x,
+                  displayStart.y,
+                  activeRectOverlayRectType,
+                  activeSelectionStyle,
+                ),
+                activeRectOverlayRectType,
+                'rect',
+                null,
+              )}
+              {renderSingleHandle(
+                'end',
+                'active-selection',
+                null,
+                { x: displayEnd.x, y: displayEnd.y },
+                isDraggingActive,
+                startRectHandleDrag('end'),
+                '拖动以调整选区终点',
+                `hsn-selection-handle hsn-selection-handle--end hsn-selection-handle-rect${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
+                buildHandleStyle(
+                  displayEnd.x,
+                  displayEnd.y,
+                  activeRectOverlayRectType,
+                  activeSelectionStyle,
+                ),
+                activeRectOverlayRectType,
+                'rect',
+                null,
+              )}
+            </>
+          );
+        })()}
+
+      {hasActiveTextSelection &&
+        displayRects.length > 0 &&
+        !isSelectingText &&
+        !isLinkedSelectingText &&
+        !dragHandle &&
+        !isLinkedSelectedRangeDragging &&
         !isLinkedActiveSelectionDragging &&
         (() => {
           const activeHandleRects =
             displayActiveOverlayRectType === 'percent' ? activePercentRects : displayRects;
+          if (activeHandleRects.length === 0) return null;
 
           const showStartHandle =
             !linkedContext ||
             !activeRangeForDisplay ||
-            activeRangeForDisplay.start.selectionId === linkedContext.selectionId ||
-            (isRectTool && activeRect);
+            activeRangeForDisplay.start.selectionId === linkedContext.selectionId;
           const showEndHandle =
             !linkedContext ||
             !activeRangeForDisplay ||
-            activeRangeForDisplay.end.selectionId === linkedContext.selectionId ||
-            (isRectTool && activeRect);
-
-          if (isRectTool && activeRect) {
-            const isDraggingActive = !!(dragHandle && !dragPersistedId);
-            const container = containerRef.current;
-
-            let displayStart = activeRect.start;
-            let displayEnd = activeRect.end;
-
-            if (activeRectOverlayRectType === 'percent' && container) {
-              const { width, height } = container.getBoundingClientRect();
-              displayStart = {
-                x: (displayStart.x / width) * 100,
-                y: (displayStart.y / height) * 100,
-              };
-              displayEnd = {
-                x: (displayEnd.x / width) * 100,
-                y: (displayEnd.y / height) * 100,
-              };
-            }
-
-            return (
-              <>
-                {showStartHandle &&
-                  renderSingleHandle(
-                    'start',
-                    'active-selection',
-                    null,
-                    { x: displayStart.x, y: displayStart.y },
-                    isDraggingActive,
-                    startRectHandleDrag('start'),
-                    '拖动以调整选区起点',
-                    `hsn-selection-handle hsn-selection-handle--start hsn-selection-handle-rect${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
-                    buildHandleStyle(
-                      displayStart.x,
-                      displayStart.y,
-                      activeRectOverlayRectType,
-                      activeSelectionStyle,
-                    ),
-                    activeRectOverlayRectType,
-                    'rect',
-                    null,
-                  )}
-                {showEndHandle &&
-                  renderSingleHandle(
-                    'end',
-                    'active-selection',
-                    null,
-                    { x: displayEnd.x, y: displayEnd.y },
-                    isDraggingActive,
-                    startRectHandleDrag('end'),
-                    '拖动以调整选区终点',
-                    `hsn-selection-handle hsn-selection-handle--end hsn-selection-handle-rect${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
-                    buildHandleStyle(
-                      displayEnd.x,
-                      displayEnd.y,
-                      activeRectOverlayRectType,
-                      activeSelectionStyle,
-                    ),
-                    activeRectOverlayRectType,
-                    'rect',
-                    null,
-                  )}
-              </>
-            );
-          }
-
-          if (activeHandleRects.length === 0) return null;
+            activeRangeForDisplay.end.selectionId === linkedContext.selectionId;
 
           const first = activeHandleRects[0] || {
             x: 0,
@@ -2648,7 +2671,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             width: 0,
             height: 0,
           };
-          const isDraggingActive = !!(dragHandle && !dragPersistedId);
 
           return (
             <>
@@ -2658,10 +2680,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   'active-selection',
                   null,
                   { x: first.x, y: first.y + first.height / 2 },
-                  isDraggingActive,
+                  false,
                   startHandleDrag('start'),
                   '拖动以调整选区起点',
-                  `hsn-selection-handle hsn-selection-handle--start${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
+                  'hsn-selection-handle hsn-selection-handle--start',
                   buildHandleStyle(
                     first.x,
                     first.y + first.height / 2,
@@ -2678,10 +2700,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   'active-selection',
                   null,
                   { x: last.x + last.width, y: last.y + last.height / 2 },
-                  isDraggingActive,
+                  false,
                   startHandleDrag('end'),
                   '拖动以调整选区终点',
-                  `hsn-selection-handle hsn-selection-handle--end${isDraggingActive ? ' hsn-selection-handle--dragging' : ''}`,
+                  'hsn-selection-handle hsn-selection-handle--end',
                   buildHandleStyle(
                     last.x + last.width,
                     last.y + last.height / 2,
@@ -2696,7 +2718,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           );
         })()}
 
-      {!displayHasSelection &&
+      {!hasActiveTextSelection &&
         !activeRect &&
         (selectedRectId || currentSelectedRangeId) &&
         (!dragHandle ||
@@ -2707,6 +2729,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           if (selectedRectId) {
             const persistedSelectionRect = propRects.find((rect) => rect.id === selectedRectId);
             if (!persistedSelectionRect) return null;
+            if (
+              linkedContext &&
+              persistedSelectionRect.selectionId &&
+              persistedSelectionRect.selectionId !== linkedContext.selectionId
+            ) {
+              return null;
+            }
             const isDraggingPersisted = !!(dragHandle && dragPersistedId === selectedRectId);
             const entryType = persistedSelectionRect.overlayRectType || 'px';
             const persistedHandleStyle = getEffectiveMarkerStyle(
