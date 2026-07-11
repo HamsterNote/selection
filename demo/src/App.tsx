@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
-import { Selection } from '@hamster-note/selection';
-import type {
-  MousePosition,
-  SelectionRange,
-  SelectionRef,
+import {
+  Selection,
+  type MousePosition,
+  type SelectionRange,
+  type SelectionRef,
 } from '@hamster-note/selection';
 
 /**
@@ -51,13 +51,10 @@ export default function App() {
   }, [selectedRangeId]);
 
   // 从列表中删除指定 range
-  const handleDeleteRange = useCallback(
-    (id: string) => {
-      setRanges((prev) => prev.filter((r) => r.id !== id));
-      setSelectedRangeId((prev) => (prev === id ? null : prev));
-    },
-    [],
-  );
+  const handleDeleteRange = useCallback((id: string) => {
+    setRanges((prev) => prev.filter((r) => r.id !== id));
+    setSelectedRangeId((prev) => (prev === id ? null : prev));
+  }, []);
 
   const handleSelectionStart = useCallback(
     (pos: MousePosition, sel: Selection) => {

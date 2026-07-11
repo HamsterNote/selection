@@ -7,12 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type {
-  OverlayRect,
-  SelectionProps,
-  SelectionRange,
-  SelectionRef,
-} from './types';
+import type { OverlayRect, SelectionProps, SelectionRange, SelectionRef } from './types';
 import { useTextSelection } from './useTextSelection';
 import './style.css';
 
@@ -25,11 +20,7 @@ function generateId(): string {
  * 根据字符偏移量在容器内创建一个 DOM Range
  * 通过 TreeWalker 遍历所有文本节点，累加长度找到对应的 (node, offset)
  */
-function createRangeFromOffsets(
-  container: HTMLElement,
-  start: number,
-  end: number,
-): Range | null {
+function createRangeFromOffsets(container: HTMLElement, start: number, end: number): Range | null {
   if (start < 0 || end < start) return null;
 
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
@@ -156,9 +147,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     useTextSelection(containerRef);
 
   /** 每个已确认 range 对应的 Overlay 矩形组 */
-  const [persistedRects, setPersistedRects] = useState<
-    Array<{ id: string; rects: OverlayRect[] }>
-  >([]);
+  const [persistedRects, setPersistedRects] = useState<Array<{ id: string; rects: OverlayRect[] }>>(
+    [],
+  );
 
   /**
    * 计算所有持久 range 的 Overlay 矩形。
@@ -191,9 +182,11 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     const ro = new ResizeObserver(() => recomputePersistedRects());
     ro.observe(container);
     window.addEventListener('resize', recomputePersistedRects);
+    document.addEventListener('scroll', recomputePersistedRects, true);
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', recomputePersistedRects);
+      document.removeEventListener('scroll', recomputePersistedRects, true);
     };
   }, [recomputePersistedRects]);
 
@@ -217,7 +210,16 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     onHighlight?.(range);
     onSelectRange?.(range.id);
     clear();
-  }, [hasSelection, selectedText, startIndex, endIndex, onSelect, onHighlight, onSelectRange, clear]);
+  }, [
+    hasSelection,
+    selectedText,
+    startIndex,
+    endIndex,
+    onSelect,
+    onHighlight,
+    onSelectRange,
+    clear,
+  ]);
 
   // 用 useImperativeHandle 暴露命令式 API。
   // 设计上仅暴露 highlight/clear 两个动作，不暴露内部状态——
@@ -282,6 +284,18 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const handleContainerClick = useCallback(
     (e: MouseEvent) => {
       if (!onSelectRange) return;
+      if (e.defaultPrevented) return;
+
+      const target = e.target;
+      if (
+        target instanceof Element &&
+        target.closest(
+          'button, a, input, textarea, select, option, label, summary, details, [role="button"], [contenteditable="true"]',
+        )
+      ) {
+        return;
+      }
+
       const native = window.getSelection();
       if (native && !native.isCollapsed && native.toString().trim()) return;
 
