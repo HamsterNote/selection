@@ -17,6 +17,16 @@
   touch-action: manipulation;
 }
 
+.hsn-selection-container--rect-tool {
+  cursor: crosshair;
+}
+
+.hsn-selection-container--rect-tool .hsn-selection-content {
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* 触摸设备（主要输入为粗指针 / pointer: coarse）：
    将内容层设为 user-select: none，阻止浏览器在长按时启动原生选区 UI
    （蓝色高亮 + 水滴形拖拽手柄）。组件通过自定义长按检测 + caretRangeFromPoint

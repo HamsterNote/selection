@@ -192,6 +192,62 @@ describe('Selection text and rect tool compatibility', () => {
     expect(onUpdateRange).not.toHaveBeenCalled();
   });
 
+  it('selection.rect-mode.selectionchange-during-drag-is-cleared-and-confirms-rect-only', () => {
+    // Given: rect mode is active and the browser still reports a native text selection.
+    mockContainerGeometry();
+    const ref = createRef<SelectionRef>();
+    const onCreateRect = vi.fn();
+    const onSelect = vi.fn();
+    const onHighlight = vi.fn();
+    const onSelectionStart = vi.fn();
+    const onSelectionEnd = vi.fn();
+    const { container } = render(
+      <Selection
+        ref={ref}
+        ranges={[mockTextRange]}
+        tool="rect"
+        onCreateRect={onCreateRect}
+        onSelect={onSelect}
+        onHighlight={onHighlight}
+        onSelectionStart={onSelectionStart}
+        onSelectionEnd={onSelectionEnd}
+        selectionPopover={<button type="button">Confirm Rect</button>}
+      >
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    installNativeSelection(host);
+
+    // When: selectionchange fires during the pointer drag.
+    act(() => {
+      dispatchPointer(host, 'pointerdown', 1, 40, 30);
+      document.dispatchEvent(new Event('selectionchange'));
+      dispatchPointer(document, 'pointermove', 1, 120, 90);
+      dispatchPointer(document, 'pointerup', 1, 120, 90);
+    });
+
+    // When: the caller confirms the current tool after the drag render commits.
+    act(() => {
+      ref.current?.confirm();
+    });
+
+    // Then: native text selection is cleared and only the independent rect payload is emitted.
+    expect(document.getSelection()?.isCollapsed).toBe(true);
+    expect(onCreateRect).toHaveBeenCalledTimes(1);
+    expect(onCreateRect.mock.lastCall?.[0]).toMatchObject({
+      overlayRectType: 'px',
+      start: { x: 40, y: 30 },
+      end: { x: 120, y: 90 },
+      rect: { x: 40, y: 30, width: 80, height: 60 },
+    });
+    expect(onCreateRect.mock.lastCall?.[0]).not.toHaveProperty('text');
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onHighlight).not.toHaveBeenCalled();
+    expect(onSelectionStart).not.toHaveBeenCalled();
+    expect(onSelectionEnd).not.toHaveBeenCalled();
+  });
+
   it('selection.tool-switch.text-to-rect-clears-active-text-and-popover', () => {
     // Given: an active text selection with selectionPopover is visible.
     mockContainerGeometry();
@@ -405,9 +461,15 @@ describe('Selection rect tool active drawing', () => {
     const host = selectionContainer(container);
     dragRect(host);
 
-    // When: caller uses the existing popover button to call ref.confirm().
+    // When: browser completes the popover button pointer cycle before click.
     const button = container.querySelector('[data-testid="confirm-rect"]');
     if (!(button instanceof HTMLElement)) throw new TypeError('Expected confirm button');
+    act(() => {
+      fireEvent.pointerUp(button, { pointerId: 1, clientX: 80, clientY: 20 });
+    });
+    expect(container.querySelector('svg rect.hsn-selection-rect--active')).toBeInTheDocument();
+
+    // When: caller uses the existing popover button to call ref.confirm().
     act(() => {
       fireEvent.click(button);
     });
@@ -478,9 +540,17 @@ describe('Selection rect tool active drawing', () => {
 
 // jsdom's PointerEvent does not forward clientX/clientY through fireEvent;
 // use MouseEvent with Object.defineProperty for pointerId (same as dragRect helper).
-function dispatchPointer(target: EventTarget, type: string, pointerId: number, clientX: number, clientY: number): void {
+function dispatchPointer(
+  target: EventTarget,
+  type: string,
+  pointerId: number,
+  clientX: number,
+  clientY: number,
+  pointerType: 'mouse' | 'touch' | 'pen' = 'mouse',
+): void {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY });
   Object.defineProperty(event, 'pointerId', { value: pointerId });
+  Object.defineProperty(event, 'pointerType', { value: pointerType });
   target.dispatchEvent(event);
 }
 
@@ -565,7 +635,7 @@ describe('Selection rect tool handles', () => {
     renderHandle.mockClear();
 
     // Active drawing -> 2 handles
-    const container = baseElement.querySelector('.hsn-selection-container')!;
+    const container = selectionContainer(baseElement);
     
     renderHandle.mockClear();
     
@@ -611,6 +681,49 @@ describe('Selection rect tool handles', () => {
         rectId: null,
         position: { x: 250, y: 280 },
         positionUnit: 'px',
+      })
+    );
+  });
+
+  it('renders persisted rect handles while text tool is active', () => {
+    // Given: a persisted rect is selected while the user is using the text tool.
+    const renderHandle = vi.fn((props: HandleRenderProps) => {
+      void props;
+      return <div data-testid="custom-handle" />;
+    });
+
+    render(
+      <Selection
+        ranges={[]}
+        tool="text"
+        rects={persistedRects}
+        selectedRectId="rect-1"
+        renderHandle={renderHandle}
+      >
+        <div />
+      </Selection>
+    );
+
+    // Then: rect handles are still rendered independently of the current tool.
+    expect(renderHandle).toHaveBeenCalledTimes(4);
+    expect(renderHandle).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        type: 'start',
+        owner: 'persisted-range',
+        target: 'rect',
+        rectId: 'rect-1',
+        position: { x: 50, y: 50 },
+      })
+    );
+    expect(renderHandle).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({
+        type: 'end',
+        owner: 'persisted-range',
+        target: 'rect',
+        rectId: 'rect-1',
+        position: { x: 150, y: 150 },
       })
     );
   });
@@ -666,10 +779,51 @@ describe('Selection rect tool handles', () => {
     });
   });
 
+  it('drags selected persisted rect handle while text tool is active', () => {
+    // Given: a selected persisted rect is visible in text mode.
+    const onUpdateRect = vi.fn();
+    const onUpdateRange = vi.fn();
+    const onSelectRect = vi.fn();
+    const { baseElement } = render(
+      <Selection
+        ranges={[]}
+        tool="text"
+        rects={persistedRects}
+        selectedRectId="rect-1"
+        onUpdateRect={onUpdateRect}
+        onUpdateRange={onUpdateRange}
+        onSelectRect={onSelectRect}
+      >
+        <div />
+      </Selection>
+    );
+
+    const handles = baseElement.querySelectorAll('.hsn-selection-handle-rect');
+    expect(handles.length).toBe(2);
+
+    // When: the user drags the persisted rect end handle while still in text mode.
+    const endHandle = handles[1];
+    act(() => {
+      dispatchPointer(endHandle, 'pointerdown', 1, 150, 150);
+      dispatchPointer(document, 'pointermove', 1, 200, 200);
+      dispatchPointer(document, 'pointerup', 1, 200, 200);
+    });
+
+    // Then: the independent rect payload is updated, not a text range.
+    expect(onUpdateRect).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'rect-1',
+      start: { x: 50, y: 50 },
+      end: { x: 200, y: 200 },
+      rect: { x: 50, y: 50, width: 150, height: 150 },
+    }));
+    expect(onUpdateRange).not.toHaveBeenCalled();
+    expect(onSelectRect).toHaveBeenCalledWith('rect-1');
+  });
+
   it('drags active rect handle', () => {
     const { baseElement } = render(<Selection ranges={[]} tool="rect"><div /></Selection>);
 
-    const container = baseElement.querySelector('.hsn-selection-container')!;
+    const container = selectionContainer(baseElement);
     
     Object.assign(window, { innerWidth: 1000, innerHeight: 1000 });
     
@@ -806,6 +960,81 @@ describe('Selection rect tool persisted and hit-testing', () => {
 
     expect(onSelectRect).toHaveBeenCalledWith(null);
     expect(onSelectRange).toHaveBeenCalledWith(null);
+  });
+
+  it('selection.rect-hit-test.document-click-clears-selected-rect-in-text-tool', () => {
+    // Given: a rect remains selected while text tool is active.
+    mockContainerGeometry();
+    const onSelectRect = vi.fn();
+    render(
+      <Selection ranges={[]} tool="text" rects={[mockPersistedPxRect]} selectedRectId="rect-1" onSelectRect={onSelectRect}>
+        {content()}
+      </Selection>,
+    );
+
+    // When: the user clicks outside the selection component.
+    act(() => {
+      dispatchPointer(document.body, 'pointerdown', 1, 300, 200);
+    });
+
+    // Then: the selected rect is cleared even though the text tool is active.
+    expect(onSelectRect).toHaveBeenCalledWith(null);
+  });
+
+  it('selection.rect-hit-test.touch-pointer-does-not-clear-selected-rect', () => {
+    // Given: touch gestures are handled by the mobile path and must not behave as outside clicks.
+    mockContainerGeometry();
+    const onSelectRect = vi.fn();
+    const { container } = render(
+      <Selection ranges={[]} tool="text" rects={[mockPersistedPxRect]} selectedRectId="rect-1" onSelectRect={onSelectRect}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+
+    // When: a touch pointer and a two-finger touch gesture occur.
+    act(() => {
+      dispatchPointer(document.body, 'pointerdown', 1, 300, 200, 'touch');
+      fireEvent.touchStart(host, { touches: [{ clientX: 40, clientY: 40 }, { clientX: 120, clientY: 120 }] });
+      fireEvent.touchMove(host, { touches: [{ clientX: 42, clientY: 42 }, { clientX: 125, clientY: 125 }] });
+      fireEvent.touchEnd(host, { changedTouches: [{ clientX: 42, clientY: 42 }, { clientX: 125, clientY: 125 }] });
+    });
+
+    // Then: pinch/two-finger interaction does not clear the selected rect.
+    expect(onSelectRect).not.toHaveBeenCalled();
+  });
+
+  it('selection.rect-active.external-button-confirms-without-pointerdown-clearing-draft', () => {
+    // Given: an active rect draft exists and the confirm action lives outside the Selection container.
+    mockContainerGeometry();
+    const ref = createRef<SelectionRef>();
+    const onCreateRect = vi.fn();
+    const { container, getByRole } = render(
+      <>
+        <button type="button" onClick={() => ref.current?.confirm()}>
+          Confirm outside
+        </button>
+        <Selection ref={ref} ranges={[]} tool="rect" onCreateRect={onCreateRect}>
+          {content()}
+        </Selection>
+      </>,
+    );
+    dragRect(selectionContainer(container));
+
+    // When: browser event order sends pointerdown before the external button click.
+    const button = getByRole('button', { name: 'Confirm outside' });
+    act(() => {
+      dispatchPointer(button, 'pointerdown', 1, 8, 8);
+      fireEvent.click(button);
+    });
+
+    // Then: the draft is still available for confirm() and is emitted as an independent rect.
+    expect(onCreateRect).toHaveBeenCalledTimes(1);
+    expect(onCreateRect.mock.lastCall?.[0]).toMatchObject({
+      start: { x: 40, y: 30 },
+      end: { x: 120, y: 90 },
+      rect: { x: 40, y: 30, width: 80, height: 60 },
+    });
   });
 
   it('selection.rect-popover.anchors-top-center', () => {

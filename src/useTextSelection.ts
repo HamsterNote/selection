@@ -10,6 +10,7 @@ import type {
 } from './types';
 
 type UseTextSelectionOptions = {
+  readonly enabled?: boolean;
   readonly linkedMode?: boolean;
   readonly selectionId?: string | null;
   readonly overlayRectType?: OverlayRectType;
@@ -271,6 +272,12 @@ export function useTextSelection(
     if (!container) return;
 
     const selection = window.getSelection();
+    if (options.enabled === false) {
+      if (selection && !selection.isCollapsed) selection.removeAllRanges();
+      setState(EMPTY_STATE);
+      return;
+    }
+
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
       setState(EMPTY_STATE);
       return;
@@ -326,7 +333,7 @@ export function useTextSelection(
       rects,
       linkedRange: null,
     });
-  }, [containerRef, options.linkedMode, options.overlayRectType, options.selectionId, options.markerStyle, options.selectionStyle]);
+  }, [containerRef, options.enabled, options.linkedMode, options.overlayRectType, options.selectionId, options.markerStyle, options.selectionStyle]);
 
   useEffect(() => {
     document.addEventListener('selectionchange', handleSelectionChange);
@@ -350,6 +357,7 @@ export function useTextSelection(
     (range: Range) => {
       const container = containerRef.current;
       if (!container) return;
+      if (options.enabled === false) return;
 
       const text = range.toString();
       if (!text.trim()) {
@@ -395,7 +403,7 @@ export function useTextSelection(
         linkedRange: null,
       });
     },
-    [containerRef, options.linkedMode, options.overlayRectType, options.selectionId, options.markerStyle, options.selectionStyle],
+    [containerRef, options.enabled, options.linkedMode, options.overlayRectType, options.selectionId, options.markerStyle, options.selectionStyle],
   );
 
   const hasSelection = state.startIndex >= 0 && state.endIndex > state.startIndex;

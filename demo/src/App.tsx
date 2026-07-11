@@ -293,10 +293,16 @@ export default function App() {
     e.preventDefault();
   }, []);
 
-  /** 联动模式：高亮当前活跃面板的原生选区 */
-  const handleLinkedHighlight = useCallback(() => {
-    linkedRefs.current[activeLinkedId]?.highlight();
-  }, [activeLinkedId]);
+  const handleLinkedConfirm = useCallback(
+    (selectionId: string) => {
+      linkedRefs.current[selectionId]?.confirm();
+    },
+    [],
+  );
+
+  const handleLinkedToolbarConfirm = useCallback(() => {
+    handleLinkedConfirm(activeLinkedId);
+  }, [activeLinkedId, handleLinkedConfirm]);
 
   const handleLegacyHighlightClick = useCallback(() => {
     legacyRef.current?.highlight();
@@ -429,11 +435,10 @@ export default function App() {
     </button>
   );
 
-  // 活跃选区弹窗（高亮按钮）
-  const linkedSelectionPopover = (
+  const makeLinkedSelectionPopover = (selectionId: string) => (
     <button
       type="button"
-      onClick={handleLinkedHighlight}
+      onClick={() => handleLinkedConfirm(selectionId)}
       onMouseDown={preventFocusLoss}
       style={{
         padding: '4px 10px',
@@ -446,7 +451,7 @@ export default function App() {
         boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
       }}
     >
-      高亮
+      {tool === 'rect' ? '确认矩形' : '高亮'}
     </button>
   );
 
@@ -614,7 +619,7 @@ export default function App() {
         ))}
         <button
           type="button"
-          onClick={handleLinkedHighlight}
+          onClick={handleLinkedToolbarConfirm}
           onMouseDown={preventFocusLoss}
           style={{
             padding: '6px 14px',
@@ -626,7 +631,7 @@ export default function App() {
             fontSize: 13,
           }}
         >
-          高亮选中（{activeLinkedId}）
+          {tool === 'rect' ? '确认矩形' : '高亮选中'}（{activeLinkedId}）
         </button>
         <button
           type="button"
@@ -679,6 +684,12 @@ export default function App() {
             onLinkedSelect={handleLinkedSelect}
             onLinkedUpdateRange={handleLinkedUpdateRange}
             onLinkedSelectRange={handleLinkedSelectRange}
+            tool={tool}
+            rects={rects}
+            selectedRectId={selectedRectId}
+            onCreateRect={handleCreateRect}
+            onSelectRect={handleSelectRect}
+            onUpdateRect={handleUpdateRect}
             // legacy 兼容回调：同区域高亮时仍会触发（用于日志）
             ranges={[]}
             selectedRangeId={null}
@@ -688,7 +699,7 @@ export default function App() {
             markerStyle={markerStyle}
             selectionStyle={selectionStyle}
             popover={linkedPopover}
-            selectionPopover={linkedSelectionPopover}
+            selectionPopover={makeLinkedSelectionPopover(PAGE_A)}
             overlayRectType={overlayRectType}
           >
             {INTRO_A}
@@ -768,6 +779,12 @@ export default function App() {
             onLinkedSelect={handleLinkedSelect}
             onLinkedUpdateRange={handleLinkedUpdateRange}
             onLinkedSelectRange={handleLinkedSelectRange}
+            tool={tool}
+            rects={rects}
+            selectedRectId={selectedRectId}
+            onCreateRect={handleCreateRect}
+            onSelectRect={handleSelectRect}
+            onUpdateRect={handleUpdateRect}
             ranges={[]}
             selectedRangeId={null}
             onSelectionStart={makeSelectionStart(PAGE_B)}
@@ -776,7 +793,7 @@ export default function App() {
             markerStyle={markerStyle}
             selectionStyle={selectionStyle}
             popover={linkedPopover}
-            selectionPopover={linkedSelectionPopover}
+            selectionPopover={makeLinkedSelectionPopover(PAGE_B)}
             overlayRectType={overlayRectType}
           >
             {INTRO_B}
@@ -1251,100 +1268,102 @@ export default function App() {
                 </ul>
               )}
               
-              <h2 style={{ fontSize: 16, marginBottom: 8, marginTop: 16, color: '#888' }}>
-                Rect 高亮（{rects.length}）
-              </h2>
-              {rects.length === 0 ? (
-                <p style={{ color: '#999' }}>还没有 Rect 高亮</p>
-              ) : (
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {rects.map((r) => {
-                    const isSelected = r.id === selectedRectId;
-                    return (
-                      <li
-                        key={r.id}
+            </>
+          )}
+
+          <h2 style={{ fontSize: 16, marginBottom: 8, marginTop: 16, color: '#888' }}>
+            Rect 高亮（{rects.length}）
+          </h2>
+          {rects.length === 0 ? (
+            <p style={{ color: '#999' }}>还没有 Rect 高亮</p>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {rects.map((r) => {
+                const isSelected = r.id === selectedRectId;
+                return (
+                  <li
+                    key={r.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '4px 8px',
+                      marginBottom: 4,
+                      borderRadius: 4,
+                      background: isSelected ? '#e3fafc' : '#fff',
+                      border: isSelected ? '1px solid #15aabf' : '1px solid #eee',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleSelectRect(isSelected ? null : r.id)}
+                      style={{
+                        flex: 1,
+                        textAlign: 'left',
+                        lineHeight: 1.6,
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: 0,
+                        color: 'inherit',
+                        fontSize: 'inherit',
+                      }}
+                    >
+                      <span
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '4px 8px',
-                          marginBottom: 4,
-                          borderRadius: 4,
-                          background: isSelected ? '#e3fafc' : '#fff',
-                          border: isSelected ? '1px solid #15aabf' : '1px solid #eee',
+                          display: 'block',
+                          fontSize: 10,
+                          color: '#888',
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                         }}
                       >
-                        <button
-                          type="button"
-                          onClick={() => handleSelectRect(isSelected ? null : r.id)}
-                          style={{
-                            flex: 1,
-                            textAlign: 'left',
-                            lineHeight: 1.6,
-                            background: 'transparent',
-                            border: 'none',
-                            cursor: 'pointer',
-                            padding: 0,
-                            color: 'inherit',
-                            fontSize: 'inherit',
-                          }}
-                        >
-                          <span
-                            style={{
-                              display: 'block',
-                              fontSize: 10,
-                              color: '#888',
-                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                            }}
-                          >
-                            id: {r.id.slice(0, 8)}... | type: {overlayRectType}
-                          </span>
-                          <span
-                            style={{
-                              display: 'block',
-                              fontSize: 10,
-                              color: '#888',
-                              marginTop: 2,
-                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                            }}
-                          >
-                            start: ({r.start.x.toFixed(1)}, {r.start.y.toFixed(1)}) | end: ({r.end.x.toFixed(1)}, {r.end.y.toFixed(1)})
-                          </span>
-                          <span
-                            style={{
-                              display: 'block',
-                              fontSize: 10,
-                              color: '#888',
-                              marginTop: 2,
-                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                            }}
-                          >
-                            rect: [x:{r.rect.x.toFixed(1)} y:{r.rect.y.toFixed(1)} w:{r.rect.width.toFixed(1)} h:{r.rect.height.toFixed(1)}]
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteRect(r.id)}
-                          style={{
-                            padding: '2px 8px',
-                            background: 'transparent',
-                            color: '#fa5252',
-                            border: '1px solid #fa5252',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                            fontSize: 12,
-                            lineHeight: 1.4,
-                            flexShrink: 0,
-                          }}
-                        >
-                          删除
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </>
+                        id: {r.id.slice(0, 8)}... | type: {r.overlayRectType}
+                        {r.selectionId ? ` | selectionId: ${r.selectionId}` : ''}
+                      </span>
+                      <span
+                        style={{
+                          display: 'block',
+                          fontSize: 10,
+                          color: '#888',
+                          marginTop: 2,
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        }}
+                      >
+                        start: ({r.start.x.toFixed(1)}, {r.start.y.toFixed(1)}) | end: ({r.end.x.toFixed(1)}, {r.end.y.toFixed(1)})
+                      </span>
+                      <span
+                        style={{
+                          display: 'block',
+                          fontSize: 10,
+                          color: '#888',
+                          marginTop: 2,
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        }}
+                      >
+                        rect: [x:{r.rect.x.toFixed(1)} y:{r.rect.y.toFixed(1)} w:{r.rect.width.toFixed(1)} h:{r.rect.height.toFixed(1)}]
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteRect(r.id)}
+                      style={{
+                        padding: '2px 8px',
+                        background: 'transparent',
+                        color: '#fa5252',
+                        border: '1px solid #fa5252',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        flexShrink: 0,
+                      }}
+                    >
+                      删除
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
 
