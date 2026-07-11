@@ -78,6 +78,8 @@ const EMPTY_STATE: InternalSelectionState = {
  * 监听 document.selectionchange，提取：
  * - 选中文本 + 字符偏移量（start/end）
  * - 选区的多行矩形（用于绘制 Overlay）
+ * 同时在滚动时重算当前活动选区矩形，避免“已选中文本但尚未高亮”时
+ * Overlay 因页面/容器滚动而停留在旧位置。
  *
  * 所有坐标均相对于 container 左上角。
  */
@@ -123,8 +125,10 @@ export function useTextSelection(
 
   useEffect(() => {
     document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('scroll', handleSelectionChange, true);
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('scroll', handleSelectionChange, true);
     };
   }, [handleSelectionChange]);
 
