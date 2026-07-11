@@ -1,16 +1,16 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { Selection } from '@hamster-note/selection';
-import type {
-  HandleRenderProps,
-  LinkedSelectionData,
-  LinkedSelectionRange,
-  MousePosition,
-  OverlayRectType,
-  SelectionRange,
-  SelectionRect,
-  SelectionRef,
-  SelectionTool,
+import {
+  type HandleRenderProps,
+  type LinkedSelectionData,
+  type LinkedSelectionRange,
+  type MousePosition,
+  type OverlayRectType,
+  Selection,
+  type SelectionRange,
+  type SelectionRect,
+  type SelectionRef,
+  type SelectionTool,
 } from '@hamster-note/selection';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 /**
  * ─────────────────────────────────────────────────────────────
@@ -65,8 +65,9 @@ export default function App() {
   const logIdRef = useRef(0);
   const appendLog = useCallback((kind: LogKind, source: string, detail: string) => {
     logIdRef.current += 1;
+    const id = logIdRef.current;
     const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-    setLogs((prev) => [{ id: logIdRef.current, kind, source, detail, ts }, ...prev].slice(0, 30));
+    setLogs((prev) => [{ id, kind, source, detail, ts }, ...prev].slice(0, 30));
   }, []);
 
   // ── per-selection refs：每个联动面板的命令式句柄 ──────────────
@@ -112,9 +113,7 @@ export default function App() {
           end: { selectionId: PAGE_A, offset: 8 },
           createdAt: Date.now(),
           rectsBySelectionId: {
-            [PAGE_A]: [
-              { x: 5, y: 5, width: 40, height: 10 },
-            ],
+            [PAGE_A]: [{ x: 5, y: 5, width: 40, height: 10 }],
           },
         },
       ],
@@ -229,11 +228,14 @@ export default function App() {
     setLegacyRanges((prev) => [...prev, range]);
   }, []);
 
-  const handleLegacySelectRange = useCallback((id: string | null) => {
-    clearLinkedSelectedRange();
-    setLegacySelectedId(id);
-    setSelectedRectId(null);
-  }, [clearLinkedSelectedRange]);
+  const handleLegacySelectRange = useCallback(
+    (id: string | null) => {
+      clearLinkedSelectedRange();
+      setLegacySelectedId(id);
+      setSelectedRectId(null);
+    },
+    [clearLinkedSelectedRange],
+  );
 
   const handleLegacyUpdateRange = useCallback((updated: SelectionRange) => {
     setLegacyRanges((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
@@ -255,11 +257,14 @@ export default function App() {
     setSelectedRectId(rect.id);
   }, []);
 
-  const handleSelectRect = useCallback((id: string | null) => {
-    clearLinkedSelectedRange();
-    setLegacySelectedId(null);
-    setSelectedRectId(id);
-  }, [clearLinkedSelectedRange]);
+  const handleSelectRect = useCallback(
+    (id: string | null) => {
+      clearLinkedSelectedRange();
+      setLegacySelectedId(null);
+      setSelectedRectId(id);
+    },
+    [clearLinkedSelectedRange],
+  );
 
   const handleUpdateRect = useCallback((rect: SelectionRect) => {
     setRects((prev) => prev.map((r) => (r.id === rect.id ? rect : r)));
@@ -311,12 +316,9 @@ export default function App() {
     e.preventDefault();
   }, []);
 
-  const handleLinkedConfirm = useCallback(
-    (selectionId: string) => {
-      linkedRefs.current[selectionId]?.confirm();
-    },
-    [],
-  );
+  const handleLinkedConfirm = useCallback((selectionId: string) => {
+    linkedRefs.current[selectionId]?.confirm();
+  }, []);
 
   const handleLinkedToolbarConfirm = useCallback(() => {
     handleLinkedConfirm(activeLinkedId);
@@ -1248,7 +1250,9 @@ export default function App() {
                             {JSON.stringify(r.selectionStyle ?? null)}
                           </span>
                         </button>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <div
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
+                        >
                           <div
                             style={{
                               width: 14,
@@ -1285,7 +1289,6 @@ export default function App() {
                   })}
                 </ul>
               )}
-              
             </>
           )}
 
@@ -1347,7 +1350,8 @@ export default function App() {
                           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                         }}
                       >
-                        start: ({r.start.x.toFixed(1)}, {r.start.y.toFixed(1)}) | end: ({r.end.x.toFixed(1)}, {r.end.y.toFixed(1)})
+                        start: ({r.start.x.toFixed(1)}, {r.start.y.toFixed(1)}) | end: (
+                        {r.end.x.toFixed(1)}, {r.end.y.toFixed(1)})
                       </span>
                       <span
                         style={{
@@ -1358,7 +1362,8 @@ export default function App() {
                           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                         }}
                       >
-                        rect: [x:{r.rect.x.toFixed(1)} y:{r.rect.y.toFixed(1)} w:{r.rect.width.toFixed(1)} h:{r.rect.height.toFixed(1)}]
+                        rect: [x:{r.rect.x.toFixed(1)} y:{r.rect.y.toFixed(1)} w:
+                        {r.rect.width.toFixed(1)} h:{r.rect.height.toFixed(1)}]
                       </span>
                     </button>
                     <button

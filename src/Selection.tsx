@@ -1143,7 +1143,10 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       }
       const rect = normalizeRectFromPoints(start, end);
       if (isRectCreatable(rect)) {
-        skipClickRef.current = createSkipClickToken({ clientX: event.clientX, clientY: event.clientY });
+        skipClickRef.current = createSkipClickToken({
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
         setActiveRect({ start, end, rect });
         return;
       }
