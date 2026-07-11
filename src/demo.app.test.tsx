@@ -17,7 +17,10 @@ function makeDomRectList(rects: DOMRect[]): DOMRectList {
 function mockGeometry(): void {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(CONTAINER_RECT);
   if (!('getClientRects' in Range.prototype)) {
-    Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: vi.fn() });
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: vi.fn(),
+    });
   }
   vi.spyOn(Range.prototype, 'getClientRects').mockReturnValue(makeDomRectList([TEXT_RECT]));
 }
@@ -31,9 +34,7 @@ function selectionContainer(host: HTMLElement, index: number): HTMLElement {
 function firstTextNode(container: HTMLElement): Text {
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      return node.textContent?.trim()
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_SKIP;
+      return node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
     },
   });
   const currentNode = walker.nextNode();

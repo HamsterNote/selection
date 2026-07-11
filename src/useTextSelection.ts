@@ -169,11 +169,7 @@ function captureLinkedSelection(
       fragment.startContainer,
       fragment.startOffset,
     );
-    const fragmentEnd = getLocalOffset(
-      entry.element,
-      fragment.endContainer,
-      fragment.endOffset,
-    );
+    const fragmentEnd = getLocalOffset(entry.element, fragment.endContainer, fragment.endOffset);
     if (fragmentStart === null || fragmentEnd === null) continue;
 
     const storedRects =
@@ -333,7 +329,15 @@ export function useTextSelection(
       rects,
       linkedRange: null,
     });
-  }, [containerRef, options.enabled, options.linkedMode, options.overlayRectType, options.selectionId, options.markerStyle, options.selectionStyle]);
+  }, [
+    containerRef,
+    options.enabled,
+    options.linkedMode,
+    options.overlayRectType,
+    options.selectionId,
+    options.markerStyle,
+    options.selectionStyle,
+  ]);
 
   useEffect(() => {
     document.addEventListener('selectionchange', handleSelectionChange);
@@ -403,7 +407,15 @@ export function useTextSelection(
         linkedRange: null,
       });
     },
-    [containerRef, options.enabled, options.linkedMode, options.overlayRectType, options.selectionId, options.markerStyle, options.selectionStyle],
+    [
+      containerRef,
+      options.enabled,
+      options.linkedMode,
+      options.overlayRectType,
+      options.selectionId,
+      options.markerStyle,
+      options.selectionStyle,
+    ],
   );
 
   const hasSelection = state.startIndex >= 0 && state.endIndex > state.startIndex;

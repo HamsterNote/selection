@@ -18,10 +18,7 @@ function warnDuplicateSelectionId(selectionId: string): void {
   );
 }
 
-function compareContainers(
-  a: RegisteredLinkedContainer,
-  b: RegisteredLinkedContainer,
-): number {
+function compareContainers(a: RegisteredLinkedContainer, b: RegisteredLinkedContainer): number {
   if (a.element === b.element) return 0;
   const position = a.element.compareDocumentPosition(b.element);
   if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
@@ -50,10 +47,7 @@ function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
   return true;
 }
 
-export function registerLinkedContainer(
-  selectionId: string,
-  element: HTMLElement,
-): () => void {
+export function registerLinkedContainer(selectionId: string, element: HTMLElement): () => void {
   const existing = linkedContainers.get(selectionId);
   if (existing && existing !== element) {
     warnDuplicateSelectionId(selectionId);

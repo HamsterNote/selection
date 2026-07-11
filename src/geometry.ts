@@ -53,10 +53,7 @@ export function percentRectsToPixelRects(
 }
 
 /** 浅比较两个百分比 rect 列表，用于后续联动模式 memo/state 去重 */
-export function percentRectListsEqual(
-  a: PercentOverlayRect[],
-  b: PercentOverlayRect[],
-): boolean {
+export function percentRectListsEqual(a: PercentOverlayRect[], b: PercentOverlayRect[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
     const rectA = a[i];
