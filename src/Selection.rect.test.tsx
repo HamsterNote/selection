@@ -4,7 +4,13 @@ import { act, fireEvent, render } from '@testing-library/react';
 import { createRef } from 'react';
 import { flushSync } from 'react-dom';
 import { Selection } from './Selection';
-import type { HandleRenderProps, LinkedSelectionData, SelectionRange, SelectionRect, SelectionRef } from './types';
+import type {
+  HandleRenderProps,
+  LinkedSelectionData,
+  SelectionRange,
+  SelectionRect,
+  SelectionRef,
+} from './types';
 
 const CONTAINER_RECT = new DOMRect(0, 0, 400, 300);
 const TEXT_RECT = new DOMRect(40, 30, 80, 24);
@@ -22,7 +28,10 @@ function makeDomRectList(rects: DOMRect[]): DOMRectList {
 function mockContainerGeometry(): void {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(CONTAINER_RECT);
   if (!('getClientRects' in Range.prototype)) {
-    Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: vi.fn() });
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: vi.fn(),
+    });
   }
   vi.spyOn(Range.prototype, 'getClientRects').mockReturnValue(makeDomRectList([TEXT_RECT]));
 }
@@ -254,7 +263,13 @@ describe('Selection text and rect tool compatibility', () => {
     const ref = createRef<SelectionRef>();
     const onSelect = vi.fn();
     const { container, rerender } = render(
-      <Selection ref={ref} ranges={[]} tool="text" onSelect={onSelect} selectionPopover={<button type="button">Text Pop</button>}>
+      <Selection
+        ref={ref}
+        ranges={[]}
+        tool="text"
+        onSelect={onSelect}
+        selectionPopover={<button type="button">Text Pop</button>}
+      >
         {content()}
       </Selection>,
     );
@@ -264,7 +279,13 @@ describe('Selection text and rect tool compatibility', () => {
 
     // When: caller switches to rect tool and later invokes legacy text highlight().
     rerender(
-      <Selection ref={ref} ranges={[]} tool="rect" onSelect={onSelect} selectionPopover={<button type="button">Text Pop</button>}>
+      <Selection
+        ref={ref}
+        ranges={[]}
+        tool="rect"
+        onSelect={onSelect}
+        selectionPopover={<button type="button">Text Pop</button>}
+      >
         {content()}
       </Selection>,
     );
@@ -311,7 +332,12 @@ describe('Selection text and rect tool compatibility', () => {
     mockContainerGeometry();
     const onSelectRange = vi.fn();
     const { container } = render(
-      <Selection ranges={[mockTextRange]} selectedRangeId="text-1" tool="rect" onSelectRange={onSelectRange}>
+      <Selection
+        ranges={[mockTextRange]}
+        selectedRangeId="text-1"
+        tool="rect"
+        onSelectRange={onSelectRange}
+      >
         {content()}
       </Selection>,
     );
@@ -330,7 +356,13 @@ describe('Selection text and rect tool compatibility', () => {
     mockContainerGeometry();
     const onSelectRect = vi.fn();
     const { container } = render(
-      <Selection ranges={[]} tool="text" rects={[mockPersistedPxRect]} selectedRectId="rect-1" onSelectRect={onSelectRect}>
+      <Selection
+        ranges={[]}
+        tool="text"
+        rects={[mockPersistedPxRect]}
+        selectedRectId="rect-1"
+        onSelectRect={onSelectRect}
+      >
         {content()}
       </Selection>,
     );
@@ -416,13 +448,18 @@ describe('Selection text and rect tool compatibility', () => {
     expect(linkedData.items).toEqual([
       expect.objectContaining({ id: 'linked-text-1', rectsBySelectionId: expect.any(Object) }),
     ]);
-    expect(linkedData.items.some((item) => 'rect' in item || 'overlayRectType' in item && !('rectsBySelectionId' in item))).toBe(false);
-    expect(onLinkedDataChange.mock.calls.every((call) => call[0]?.items?.length === originalLength)).toBe(true);
+    expect(
+      linkedData.items.some(
+        (item) => 'rect' in item || ('overlayRectType' in item && !('rectsBySelectionId' in item)),
+      ),
+    ).toBe(false);
+    expect(
+      onLinkedDataChange.mock.calls.every((call) => call[0]?.items?.length === originalLength),
+    ).toBe(true);
   });
 });
 
 describe('Selection rect tool active drawing', () => {
-
   afterEach(() => {
     document.getSelection()?.removeAllRanges();
     vi.restoreAllMocks();
@@ -550,7 +587,13 @@ describe('Selection rect tool active drawing', () => {
     const onCreateRect = vi.fn();
     const onSelectRect = vi.fn();
     const { container } = render(
-      <Selection ref={ref} ranges={[]} tool="rect" onCreateRect={onCreateRect} onSelectRect={onSelectRect}>
+      <Selection
+        ref={ref}
+        ranges={[]}
+        tool="rect"
+        onCreateRect={onCreateRect}
+        onSelectRect={onSelectRect}
+      >
         {content()}
       </Selection>,
     );
@@ -641,7 +684,7 @@ describe('Selection rect tool handles', () => {
         renderHandle={renderHandle}
       >
         <div />
-      </Selection>
+      </Selection>,
     );
 
     // No active rect, no selected rect -> no handles
@@ -657,7 +700,7 @@ describe('Selection rect tool handles', () => {
         renderHandle={renderHandle}
       >
         <div />
-      </Selection>
+      </Selection>,
     );
 
     expect(renderHandle).toHaveBeenCalledTimes(2);
@@ -670,7 +713,7 @@ describe('Selection rect tool handles', () => {
         rectId: 'rect-1',
         position: { x: 50, y: 50 },
         positionUnit: 'px',
-      })
+      }),
     );
     expect(renderHandle).toHaveBeenNthCalledWith(
       2,
@@ -681,15 +724,15 @@ describe('Selection rect tool handles', () => {
         rectId: 'rect-1',
         position: { x: 150, y: 150 },
         positionUnit: 'px',
-      })
+      }),
     );
 
     renderHandle.mockClear();
 
     const container = selectionContainer(baseElement);
-    
+
     renderHandle.mockClear();
-    
+
     rerender(
       <Selection
         ranges={[]}
@@ -699,19 +742,19 @@ describe('Selection rect tool handles', () => {
         renderHandle={renderHandle}
       >
         <div />
-      </Selection>
+      </Selection>,
     );
     renderHandle.mockClear();
-    
+
     act(() => {
       dispatchPointer(container, 'pointerdown', 1, 200, 200);
       dispatchPointer(document, 'pointermove', 1, 250, 280);
       dispatchPointer(document, 'pointerup', 1, 250, 280);
     });
-    
+
     const calls = renderHandle.mock.calls;
     expect(calls.length).toBeGreaterThanOrEqual(2);
-    
+
     const startCall = calls[calls.length - 2];
     const endCall = calls[calls.length - 1];
 
@@ -723,7 +766,7 @@ describe('Selection rect tool handles', () => {
         rectId: null,
         position: { x: 200, y: 200 },
         positionUnit: 'px',
-      })
+      }),
     );
     expect(endCall[0]).toEqual(
       expect.objectContaining({
@@ -733,7 +776,7 @@ describe('Selection rect tool handles', () => {
         rectId: null,
         position: { x: 250, y: 280 },
         positionUnit: 'px',
-      })
+      }),
     );
   });
 
@@ -753,7 +796,7 @@ describe('Selection rect tool handles', () => {
         renderHandle={renderHandle}
       >
         <div />
-      </Selection>
+      </Selection>,
     );
 
     // Then: rect handles are still rendered independently of the current tool.
@@ -766,7 +809,7 @@ describe('Selection rect tool handles', () => {
         target: 'rect',
         rectId: 'rect-1',
         position: { x: 50, y: 50 },
-      })
+      }),
     );
     expect(renderHandle).toHaveBeenNthCalledWith(
       4,
@@ -776,7 +819,7 @@ describe('Selection rect tool handles', () => {
         target: 'rect',
         rectId: 'rect-1',
         position: { x: 150, y: 150 },
-      })
+      }),
     );
   });
 
@@ -793,7 +836,7 @@ describe('Selection rect tool handles', () => {
         onUpdateRange={onUpdateRange}
       >
         <div />
-      </Selection>
+      </Selection>,
     );
 
     const handles = baseElement.querySelectorAll('.hsn-selection-handle-rect');
@@ -805,26 +848,30 @@ describe('Selection rect tool handles', () => {
       // Drag end handle from (150, 150) to (200, 200)
       dispatchPointer(document, 'pointermove', 1, 200, 200);
     });
-    
+
     expect(onUpdateRect).toHaveBeenCalledTimes(1);
-    expect(onUpdateRect).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'rect-1',
-      start: { x: 50, y: 50 },
-      end: { x: 200, y: 200 },
-      rect: { x: 50, y: 50, width: 150, height: 150 },
-    }));
+    expect(onUpdateRect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'rect-1',
+        start: { x: 50, y: 50 },
+        end: { x: 200, y: 200 },
+        rect: { x: 50, y: 50, width: 150, height: 150 },
+      }),
+    );
     expect(onUpdateRange).not.toHaveBeenCalled();
 
     // Drag past the start anchor to invert
     act(() => {
       dispatchPointer(document, 'pointermove', 1, 30, 40);
     });
-    expect(onUpdateRect).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'rect-1',
-      start: { x: 50, y: 50 }, // start stays anchored
-      end: { x: 30, y: 40 }, // end moved
-      rect: { x: 30, y: 40, width: 20, height: 10 }, // normalized rect
-    }));
+    expect(onUpdateRect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'rect-1',
+        start: { x: 50, y: 50 }, // start stays anchored
+        end: { x: 30, y: 40 }, // end moved
+        rect: { x: 30, y: 40, width: 20, height: 10 }, // normalized rect
+      }),
+    );
 
     act(() => {
       dispatchPointer(document, 'pointerup', 1, 0, 0);
@@ -847,7 +894,7 @@ describe('Selection rect tool handles', () => {
         onSelectRect={onSelectRect}
       >
         <div />
-      </Selection>
+      </Selection>,
     );
 
     const handles = baseElement.querySelectorAll('.hsn-selection-handle-rect');
@@ -862,23 +909,29 @@ describe('Selection rect tool handles', () => {
     });
 
     // Then: the independent rect payload is updated, not a text range.
-    expect(onUpdateRect).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'rect-1',
-      start: { x: 50, y: 50 },
-      end: { x: 200, y: 200 },
-      rect: { x: 50, y: 50, width: 150, height: 150 },
-    }));
+    expect(onUpdateRect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'rect-1',
+        start: { x: 50, y: 50 },
+        end: { x: 200, y: 200 },
+        rect: { x: 50, y: 50, width: 150, height: 150 },
+      }),
+    );
     expect(onUpdateRange).not.toHaveBeenCalled();
     expect(onSelectRect).toHaveBeenCalledWith('rect-1');
   });
 
   it('drags active rect handle', () => {
-    const { baseElement } = render(<Selection ranges={[]} tool="rect"><div /></Selection>);
+    const { baseElement } = render(
+      <Selection ranges={[]} tool="rect">
+        <div />
+      </Selection>,
+    );
 
     const container = selectionContainer(baseElement);
-    
+
     Object.assign(window, { innerWidth: 1000, innerHeight: 1000 });
-    
+
     act(() => {
       dispatchPointer(container, 'pointerdown', 1, 100, 100);
       dispatchPointer(document, 'pointermove', 1, 150, 150);
@@ -893,13 +946,13 @@ describe('Selection rect tool handles', () => {
       dispatchPointer(startHandle, 'pointerdown', 2, 100, 100);
       dispatchPointer(document, 'pointermove', 2, 120, 110);
     });
-    
+
     const activeRect = baseElement.querySelector('.hsn-selection-rect--active');
     expect(activeRect).toHaveAttribute('x', '120');
     expect(activeRect).toHaveAttribute('y', '110');
     expect(activeRect).toHaveAttribute('width', '30'); // 150 - 120
     expect(activeRect).toHaveAttribute('height', '40'); // 150 - 110
-    
+
     act(() => {
       dispatchPointer(document, 'pointerup', 2, 0, 0);
     });
@@ -981,12 +1034,20 @@ describe('Selection rect tool persisted and hit-testing', () => {
   it('selection.rect-persisted.percent-renders-as-div', () => {
     mockContainerGeometry();
     const { container } = render(
-      <Selection ranges={[]} tool="rect" overlayRectType="percent" rects={[mockPersistedPercentRect]} selectedRectId="rect-2">
+      <Selection
+        ranges={[]}
+        tool="rect"
+        overlayRectType="percent"
+        rects={[mockPersistedPercentRect]}
+        selectedRectId="rect-2"
+      >
         {content()}
       </Selection>,
     );
 
-    const divRect = container.querySelector('.hsn-selection-percent-rect.hsn-selection-percent-rect-selected');
+    const divRect = container.querySelector(
+      '.hsn-selection-percent-rect.hsn-selection-percent-rect-selected',
+    );
     if (!(divRect instanceof HTMLElement)) throw new TypeError('Expected percent rect element');
     expect(divRect).toBeInTheDocument();
     expect(divRect.style.left).toBe('10%');
@@ -1005,7 +1066,8 @@ describe('Selection rect tool persisted and hit-testing', () => {
     dragRect(selectionContainer(container));
 
     const divRect = container.querySelector('.hsn-selection-percent-rect-active');
-    if (!(divRect instanceof HTMLElement)) throw new TypeError('Expected active percent rect element');
+    if (!(divRect instanceof HTMLElement))
+      throw new TypeError('Expected active percent rect element');
     expect(divRect).toBeInTheDocument();
     expect(divRect.style.left).toBe('10%'); // 40 / 400
     expect(divRect.style.top).toBe('10%'); // 30 / 300
@@ -1017,13 +1079,19 @@ describe('Selection rect tool persisted and hit-testing', () => {
     mockContainerGeometry();
     const onSelectRect = vi.fn();
     const { container, rerender } = render(
-      <Selection ranges={[]} tool="rect" rects={[mockPersistedPxRect]} selectedRectId={null} onSelectRect={onSelectRect}>
+      <Selection
+        ranges={[]}
+        tool="rect"
+        rects={[mockPersistedPxRect]}
+        selectedRectId={null}
+        onSelectRect={onSelectRect}
+      >
         {content()}
       </Selection>,
     );
 
     const host = selectionContainer(container);
-    
+
     act(() => {
       fireEvent.click(host, { clientX: 100, clientY: 75 });
     });
@@ -1031,7 +1099,13 @@ describe('Selection rect tool persisted and hit-testing', () => {
     expect(onSelectRect).toHaveBeenCalledWith('rect-1');
 
     rerender(
-      <Selection ranges={[]} tool="rect" rects={[mockPersistedPxRect]} selectedRectId="rect-1" onSelectRect={onSelectRect}>
+      <Selection
+        ranges={[]}
+        tool="rect"
+        rects={[mockPersistedPxRect]}
+        selectedRectId="rect-1"
+        onSelectRect={onSelectRect}
+      >
         {content()}
       </Selection>,
     );
@@ -1048,13 +1122,20 @@ describe('Selection rect tool persisted and hit-testing', () => {
     const onSelectRect = vi.fn();
     const onSelectRange = vi.fn();
     const { container } = render(
-      <Selection ranges={[]} tool="rect" rects={[mockPersistedPxRect]} selectedRectId="rect-1" onSelectRect={onSelectRect} onSelectRange={onSelectRange}>
+      <Selection
+        ranges={[]}
+        tool="rect"
+        rects={[mockPersistedPxRect]}
+        selectedRectId="rect-1"
+        onSelectRect={onSelectRect}
+        onSelectRange={onSelectRange}
+      >
         {content()}
       </Selection>,
     );
 
     const host = selectionContainer(container);
-    
+
     act(() => {
       fireEvent.click(host, { clientX: 300, clientY: 200 });
     });
@@ -1068,7 +1149,13 @@ describe('Selection rect tool persisted and hit-testing', () => {
     mockContainerGeometry();
     const onSelectRect = vi.fn();
     render(
-      <Selection ranges={[]} tool="text" rects={[mockPersistedPxRect]} selectedRectId="rect-1" onSelectRect={onSelectRect}>
+      <Selection
+        ranges={[]}
+        tool="text"
+        rects={[mockPersistedPxRect]}
+        selectedRectId="rect-1"
+        onSelectRect={onSelectRect}
+      >
         {content()}
       </Selection>,
     );
@@ -1087,7 +1174,13 @@ describe('Selection rect tool persisted and hit-testing', () => {
     mockContainerGeometry();
     const onSelectRect = vi.fn();
     const { container } = render(
-      <Selection ranges={[]} tool="text" rects={[mockPersistedPxRect]} selectedRectId="rect-1" onSelectRect={onSelectRect}>
+      <Selection
+        ranges={[]}
+        tool="text"
+        rects={[mockPersistedPxRect]}
+        selectedRectId="rect-1"
+        onSelectRect={onSelectRect}
+      >
         {content()}
       </Selection>,
     );
@@ -1096,9 +1189,24 @@ describe('Selection rect tool persisted and hit-testing', () => {
     // When: a touch pointer and a two-finger touch gesture occur.
     act(() => {
       dispatchPointer(document.body, 'pointerdown', 1, 300, 200, 'touch');
-      fireEvent.touchStart(host, { touches: [{ clientX: 40, clientY: 40 }, { clientX: 120, clientY: 120 }] });
-      fireEvent.touchMove(host, { touches: [{ clientX: 42, clientY: 42 }, { clientX: 125, clientY: 125 }] });
-      fireEvent.touchEnd(host, { changedTouches: [{ clientX: 42, clientY: 42 }, { clientX: 125, clientY: 125 }] });
+      fireEvent.touchStart(host, {
+        touches: [
+          { clientX: 40, clientY: 40 },
+          { clientX: 120, clientY: 120 },
+        ],
+      });
+      fireEvent.touchMove(host, {
+        touches: [
+          { clientX: 42, clientY: 42 },
+          { clientX: 125, clientY: 125 },
+        ],
+      });
+      fireEvent.touchEnd(host, {
+        changedTouches: [
+          { clientX: 42, clientY: 42 },
+          { clientX: 125, clientY: 125 },
+        ],
+      });
     });
 
     // Then: pinch/two-finger interaction does not clear the selected rect.
@@ -1141,14 +1249,20 @@ describe('Selection rect tool persisted and hit-testing', () => {
   it('selection.rect-popover.anchors-top-center', () => {
     mockContainerGeometry();
     const { container } = render(
-      <Selection ranges={[]} tool="rect" rects={[mockPersistedPxRect]} selectedRectId="rect-1" popover={<div>Pop</div>}>
+      <Selection
+        ranges={[]}
+        tool="rect"
+        rects={[mockPersistedPxRect]}
+        selectedRectId="rect-1"
+        popover={<div>Pop</div>}
+      >
         {content()}
       </Selection>,
     );
 
     const popover = container.querySelector('.hsn-selection-popover');
     if (!(popover instanceof HTMLElement)) throw new TypeError('Expected popover element');
-    
+
     expect(popover.style.left).toBe('100px'); // 50 + 100/2
     expect(popover.style.top).toBe('50px');
   });
@@ -1157,14 +1271,25 @@ describe('Selection rect tool persisted and hit-testing', () => {
     mockContainerGeometry();
     const onSelectRect = vi.fn();
     const { container } = render(
-      <Selection ranges={[]} tool="rect" rects={[mockPersistedPxRect]} selectedRectId="rect-1" onSelectRect={onSelectRect} popover={<button type="button" data-testid="pop-btn">Pop</button>}>
+      <Selection
+        ranges={[]}
+        tool="rect"
+        rects={[mockPersistedPxRect]}
+        selectedRectId="rect-1"
+        onSelectRect={onSelectRect}
+        popover={
+          <button type="button" data-testid="pop-btn">
+            Pop
+          </button>
+        }
+      >
         {content()}
       </Selection>,
     );
 
     const popBtn = container.querySelector('[data-testid="pop-btn"]');
     if (!(popBtn instanceof HTMLElement)) throw new TypeError('Expected popover button');
-    
+
     act(() => {
       fireEvent.click(popBtn);
     });
@@ -1187,15 +1312,15 @@ describe('Selection rect tool persisted and hit-testing', () => {
         ranges={[]}
       >
         <div />
-      </Selection>
+      </Selection>,
     );
 
     const host = selectionContainer(container);
     dragRect(host);
-    
+
     const activeDivs = container.querySelectorAll('.hsn-selection-percent-rect-active');
-    expect(activeDivs.length).toBe(1); 
-    
+    expect(activeDivs.length).toBe(1);
+
     const div = activeDivs[0] as HTMLElement;
     expect(div.style.left).toBe('10%');
     expect(div.style.top).toBe('10%');
@@ -1206,7 +1331,7 @@ describe('Selection rect tool persisted and hit-testing', () => {
 
     expect(onCreateRect).toHaveBeenCalledTimes(1);
     const rect = onCreateRect.mock.calls[0][0] as SelectionRect;
-    
+
     expect(rect.overlayRectType).toBe('percent');
     expect(rect.start).toEqual({ x: 10, y: 10 });
     expect(rect.end).toEqual({ x: 30, y: 30 });
@@ -1216,7 +1341,7 @@ describe('Selection rect tool persisted and hit-testing', () => {
     mockContainerGeometry();
     const onSelectRect = vi.fn();
     const onSelectRange = vi.fn();
-    
+
     const textRange = {
       id: 'text-1',
       text: 'Deterministic',
@@ -1228,13 +1353,20 @@ describe('Selection rect tool persisted and hit-testing', () => {
     };
 
     const { container, rerender } = render(
-      <Selection ranges={[textRange]} tool="text" rects={[mockPersistedPxRect]} selectedRectId="rect-1" onSelectRect={onSelectRect} onSelectRange={onSelectRange}>
+      <Selection
+        ranges={[textRange]}
+        tool="text"
+        rects={[mockPersistedPxRect]}
+        selectedRectId="rect-1"
+        onSelectRect={onSelectRect}
+        onSelectRange={onSelectRange}
+      >
         {content()}
       </Selection>,
     );
 
     const host = selectionContainer(container);
-    
+
     act(() => {
       fireEvent.click(host, { clientX: 20, clientY: 20 });
     });
@@ -1245,7 +1377,15 @@ describe('Selection rect tool persisted and hit-testing', () => {
     vi.clearAllMocks();
 
     rerender(
-      <Selection ranges={[textRange]} selectedRangeId="text-1" tool="text" rects={[mockPersistedPxRect]} selectedRectId={null} onSelectRect={onSelectRect} onSelectRange={onSelectRange}>
+      <Selection
+        ranges={[textRange]}
+        selectedRangeId="text-1"
+        tool="text"
+        rects={[mockPersistedPxRect]}
+        selectedRectId={null}
+        onSelectRect={onSelectRect}
+        onSelectRange={onSelectRange}
+      >
         {content()}
       </Selection>,
     );

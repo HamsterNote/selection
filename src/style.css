@@ -109,7 +109,11 @@
   position: absolute;
   pointer-events: none;
   border-radius: 2px;
-  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 /* 持久高亮（未选中态）：黄色，与 .hsn-selection-rect--highlight 同色 */

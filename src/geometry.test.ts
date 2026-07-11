@@ -20,12 +20,7 @@ import type { OverlayRect, PercentOverlayRect } from './types';
 // ---------------------------------------------------------------------------
 // 工具函数：构造一个 getBoundingClientRect 返回固定值的 HTMLElement mock
 // ---------------------------------------------------------------------------
-function makeContainer(
-  left: number,
-  top: number,
-  width: number,
-  height: number,
-): HTMLElement {
+function makeContainer(left: number, top: number, width: number, height: number): HTMLElement {
   const el = document.createElement('div');
   vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
     left,
@@ -37,7 +32,16 @@ function makeContainer(
     x: left,
     y: top,
     toJSON(): Record<string, number> {
-      return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top };
+      return {
+        left,
+        top,
+        width,
+        height,
+        right: left + width,
+        bottom: top + height,
+        x: left,
+        y: top,
+      };
     },
   });
   return el;
@@ -298,10 +302,16 @@ describe('完整拖拽流程: clamp + normalize + store', () => {
     expect(isRectCreatable(rect)).toBe(true);
 
     expect(storeRectForOverlayRectType(rect, 'px', container)).toEqual({
-      x: 40, y: 30, width: 80, height: 60,
+      x: 40,
+      y: 30,
+      width: 80,
+      height: 60,
     });
     expect(storeRectForOverlayRectType(rect, 'percent', container)).toEqual({
-      x: 10, y: 10, width: 20, height: 20,
+      x: 10,
+      y: 10,
+      width: 20,
+      height: 20,
     });
   });
 

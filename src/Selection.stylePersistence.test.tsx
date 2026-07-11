@@ -25,12 +25,17 @@ const CONTAINER_RECT = new DOMRect(0, 0, 400, 300);
 const TEXT_RECT = new DOMRect(40, 30, 80, 24);
 
 function makeDomRectList(rects: readonly DOMRect[]): DOMRectList {
-  return Object.assign([...rects], { item: (index: number): DOMRect | null => rects[index] ?? null });
+  return Object.assign([...rects], {
+    item: (index: number): DOMRect | null => rects[index] ?? null,
+  });
 }
 
 function mockGeometry(rect: DOMRect = TEXT_RECT): void {
   Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: vi.fn() });
-  Object.defineProperty(Range.prototype, 'getBoundingClientRect', { configurable: true, value: vi.fn() });
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+    configurable: true,
+    value: vi.fn(),
+  });
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(CONTAINER_RECT);
   vi.spyOn(Range.prototype, 'getClientRects').mockReturnValue(makeDomRectList([rect]));
   vi.spyOn(Range.prototype, 'getBoundingClientRect').mockReturnValue(rect);
@@ -126,10 +131,21 @@ describe('Selection style persistence', () => {
     mockGeometry();
     const ref = createRef<SelectionRef>();
     const onSelect = vi.fn();
-    const markerStyle: CSSProperties = { backgroundColor: 'rgba(64,156,255,0.25)', borderColor: '#1c7ed6', borderWidth: 2 };
+    const markerStyle: CSSProperties = {
+      backgroundColor: 'rgba(64,156,255,0.25)',
+      borderColor: '#1c7ed6',
+      borderWidth: 2,
+    };
     const selectionStyle: CSSProperties = { backgroundColor: 'rgba(244,114,182,0.45)' };
     const { container, rerender } = render(
-      <Selection ref={ref} ranges={[]} onSelect={onSelect} overlayRectType="px" markerStyle={markerStyle} selectionStyle={selectionStyle}>
+      <Selection
+        ref={ref}
+        ranges={[]}
+        onSelect={onSelect}
+        overlayRectType="px"
+        markerStyle={markerStyle}
+        selectionStyle={selectionStyle}
+      >
         {content()}
       </Selection>,
     );
@@ -143,9 +159,21 @@ describe('Selection style persistence', () => {
     expect(range.selectionStyle).toEqual(selectionStyle);
 
     // When: 用新颜色 props 重新渲染同一 range
-    const nextMarkerStyle: CSSProperties = { backgroundColor: 'rgba(0,255,0,0.3)', borderColor: '#000', borderWidth: 5 };
+    const nextMarkerStyle: CSSProperties = {
+      backgroundColor: 'rgba(0,255,0,0.3)',
+      borderColor: '#000',
+      borderWidth: 5,
+    };
     rerender(
-      <Selection ref={ref} ranges={[range]} selectedRangeId={range.id} onSelect={onSelect} overlayRectType="px" markerStyle={nextMarkerStyle} selectionStyle={{ backgroundColor: 'rgba(0,0,255,0.5)' }}>
+      <Selection
+        ref={ref}
+        ranges={[range]}
+        selectedRangeId={range.id}
+        onSelect={onSelect}
+        overlayRectType="px"
+        markerStyle={nextMarkerStyle}
+        selectionStyle={{ backgroundColor: 'rgba(0,0,255,0.5)' }}
+      >
         {content()}
       </Selection>,
     );
@@ -153,7 +181,11 @@ describe('Selection style persistence', () => {
     // Then: SVG 仍使用旧存储样式
     const rect = container.querySelector('svg rect[data-range-id]');
     expect(rect).not.toBeNull();
-    expect(rect).toHaveStyle({ fill: 'rgba(64,156,255,0.25)', stroke: '#1c7ed6', strokeWidth: '2' });
+    expect(rect).toHaveStyle({
+      fill: 'rgba(64,156,255,0.25)',
+      stroke: '#1c7ed6',
+      strokeWidth: '2',
+    });
   });
 
   it('legacy-percent.snapshots-styles-and-renders-stored-div-style', () => {
@@ -161,10 +193,21 @@ describe('Selection style persistence', () => {
     mockGeometry();
     const ref = createRef<SelectionRef>();
     const onSelect = vi.fn();
-    const markerStyle: CSSProperties = { backgroundColor: 'rgba(64,156,255,0.25)', borderColor: '#1c7ed6', borderWidth: 2 };
+    const markerStyle: CSSProperties = {
+      backgroundColor: 'rgba(64,156,255,0.25)',
+      borderColor: '#1c7ed6',
+      borderWidth: 2,
+    };
     const selectionStyle: CSSProperties = { backgroundColor: 'rgba(244,114,182,0.45)' };
     const { container, rerender } = render(
-      <Selection ref={ref} ranges={[]} onSelect={onSelect} overlayRectType="percent" markerStyle={markerStyle} selectionStyle={selectionStyle}>
+      <Selection
+        ref={ref}
+        ranges={[]}
+        onSelect={onSelect}
+        overlayRectType="percent"
+        markerStyle={markerStyle}
+        selectionStyle={selectionStyle}
+      >
         {content()}
       </Selection>,
     );
@@ -179,7 +222,15 @@ describe('Selection style persistence', () => {
 
     // When: props 改变
     rerender(
-      <Selection ref={ref} ranges={[range]} selectedRangeId={range.id} onSelect={onSelect} overlayRectType="percent" markerStyle={{ backgroundColor: 'green' }} selectionStyle={{ backgroundColor: 'purple' }}>
+      <Selection
+        ref={ref}
+        ranges={[range]}
+        selectedRangeId={range.id}
+        onSelect={onSelect}
+        overlayRectType="percent"
+        markerStyle={{ backgroundColor: 'green' }}
+        selectionStyle={{ backgroundColor: 'purple' }}
+      >
         {content()}
       </Selection>,
     );
@@ -187,7 +238,11 @@ describe('Selection style persistence', () => {
     // Then: div 仍使用旧存储样式
     const div = container.querySelector('.hsn-selection-percent-rect');
     expect(div).not.toBeNull();
-    expect(div).toHaveStyle({ backgroundColor: 'rgba(64,156,255,0.25)', borderColor: '#1c7ed6', borderWidth: '2px' });
+    expect(div).toHaveStyle({
+      backgroundColor: 'rgba(64,156,255,0.25)',
+      borderColor: '#1c7ed6',
+      borderWidth: '2px',
+    });
   });
 
   it('linked.snapshots-styles-into-linked-range', () => {
@@ -195,11 +250,29 @@ describe('Selection style persistence', () => {
     mockGeometry();
     const ref = createRef<SelectionRef>();
     const onLinkedDataChange = vi.fn();
-    const linkedData: LinkedSelectionData = { items: [], selectedRangeId: null, selectionOrder: [] };
-    const markerStyle: CSSProperties = { backgroundColor: 'rgba(64,156,255,0.25)', borderColor: '#1c7ed6', borderWidth: 2 };
+    const linkedData: LinkedSelectionData = {
+      items: [],
+      selectedRangeId: null,
+      selectionOrder: [],
+    };
+    const markerStyle: CSSProperties = {
+      backgroundColor: 'rgba(64,156,255,0.25)',
+      borderColor: '#1c7ed6',
+      borderWidth: 2,
+    };
     const selectionStyle: CSSProperties = { backgroundColor: 'rgba(244,114,182,0.45)' };
     const { container, rerender } = render(
-      <Selection ref={ref} selectionId="page-a" linkedMode={true} linkedData={linkedData} onLinkedDataChange={onLinkedDataChange} overlayRectType="percent" markerStyle={markerStyle} selectionStyle={selectionStyle} ranges={[]}>
+      <Selection
+        ref={ref}
+        selectionId="page-a"
+        linkedMode={true}
+        linkedData={linkedData}
+        onLinkedDataChange={onLinkedDataChange}
+        overlayRectType="percent"
+        markerStyle={markerStyle}
+        selectionStyle={selectionStyle}
+        ranges={[]}
+      >
         {content()}
       </Selection>,
     );
@@ -215,7 +288,17 @@ describe('Selection style persistence', () => {
 
     // When: 用新 props 重新渲染同一 linkedData
     rerender(
-      <Selection ref={ref} selectionId="page-a" linkedMode={true} linkedData={nextData} onLinkedDataChange={onLinkedDataChange} overlayRectType="percent" markerStyle={{ backgroundColor: 'green' }} selectionStyle={{ backgroundColor: 'purple' }} ranges={[]}>
+      <Selection
+        ref={ref}
+        selectionId="page-a"
+        linkedMode={true}
+        linkedData={nextData}
+        onLinkedDataChange={onLinkedDataChange}
+        overlayRectType="percent"
+        markerStyle={{ backgroundColor: 'green' }}
+        selectionStyle={{ backgroundColor: 'purple' }}
+        ranges={[]}
+      >
         {content()}
       </Selection>,
     );
@@ -223,7 +306,11 @@ describe('Selection style persistence', () => {
     // Then: 旧 linked range 仍使用旧样式
     const div = container.querySelector('.hsn-selection-percent-rect');
     expect(div).not.toBeNull();
-    expect(div).toHaveStyle({ backgroundColor: 'rgba(64,156,255,0.25)', borderColor: '#1c7ed6', borderWidth: '2px' });
+    expect(div).toHaveStyle({
+      backgroundColor: 'rgba(64,156,255,0.25)',
+      borderColor: '#1c7ed6',
+      borderWidth: '2px',
+    });
   });
 
   it('active-selection.uses-current-selection-style', () => {
@@ -247,25 +334,43 @@ describe('Selection style persistence', () => {
 
     // When: 更换 selectionStyle 且仍保持活跃
     rerender(
-      <Selection ref={ref} ranges={[]} overlayRectType="px" selectionStyle={{ backgroundColor: 'rgba(0,255,0,0.5)' }}>
+      <Selection
+        ref={ref}
+        ranges={[]}
+        overlayRectType="px"
+        selectionStyle={{ backgroundColor: 'rgba(0,255,0,0.5)' }}
+      >
         {content()}
       </Selection>,
     );
 
     // Then: 活跃选区应使用新样式（未被持久化）
-    expect(container.querySelector('svg rect.hsn-selection-rect--active')).toHaveStyle({ fill: 'rgba(0,255,0,0.5)' });
+    expect(container.querySelector('svg rect.hsn-selection-rect--active')).toHaveStyle({
+      fill: 'rgba(0,255,0,0.5)',
+    });
   });
 
   it('handles.use-selection-style-for-active-and-marker-style-for-persisted', () => {
     // Given
     mockGeometry();
     const ref = createRef<SelectionRef>();
-    const capturedHandles: Array<{ owner: string; rangeId: string | null; style: CSSProperties }> = [];
-    const renderHandle = vi.fn((props: { owner: 'active-selection' | 'persisted-range'; rangeId: string | null; style: CSSProperties }) => {
-      capturedHandles.push({ owner: props.owner, rangeId: props.rangeId, style: props.style });
-      return <button type="button" data-testid="custom-handle" />;
-    });
-    const markerStyle: CSSProperties = { backgroundColor: 'rgba(64,156,255,0.25)', borderColor: '#1c7ed6', borderWidth: 2 };
+    const capturedHandles: Array<{ owner: string; rangeId: string | null; style: CSSProperties }> =
+      [];
+    const renderHandle = vi.fn(
+      (props: {
+        owner: 'active-selection' | 'persisted-range';
+        rangeId: string | null;
+        style: CSSProperties;
+      }) => {
+        capturedHandles.push({ owner: props.owner, rangeId: props.rangeId, style: props.style });
+        return <button type="button" data-testid="custom-handle" />;
+      },
+    );
+    const markerStyle: CSSProperties = {
+      backgroundColor: 'rgba(64,156,255,0.25)',
+      borderColor: '#1c7ed6',
+      borderWidth: 2,
+    };
     const selectionStyle: CSSProperties = { backgroundColor: 'rgba(244,114,182,0.45)' };
     const onSelect = vi.fn();
     let selectedRangeId: string | null = null;
@@ -320,7 +425,9 @@ describe('Selection style persistence', () => {
     );
 
     // Then: 已确认 range 的手柄应使用 markerStyle 颜色
-    const persistedHandles = capturedHandles.filter((h) => h.owner === 'persisted-range' && h.rangeId !== null);
+    const persistedHandles = capturedHandles.filter(
+      (h) => h.owner === 'persisted-range' && h.rangeId !== null,
+    );
     expect(persistedHandles.length).toBeGreaterThan(0);
     expect(persistedHandles[0]?.style.background).toBe('rgba(64,156,255,0.25)');
     expect(persistedHandles[0]?.style.borderColor).toBe('#1c7ed6');
@@ -339,11 +446,20 @@ describe('Selection style persistence', () => {
       overlayRectType: 'px',
       rects: [{ x: 40, y: 30, width: 80, height: 24 }],
     };
-    const markerStyle: CSSProperties = { backgroundColor: 'rgba(64,156,255,0.25)', borderColor: '#1c7ed6', borderWidth: 2 };
+    const markerStyle: CSSProperties = {
+      backgroundColor: 'rgba(64,156,255,0.25)',
+      borderColor: '#1c7ed6',
+      borderWidth: 2,
+    };
 
     // When
     const { container } = render(
-      <Selection ranges={[oldRange]} selectedRangeId={oldRange.id} overlayRectType="px" markerStyle={markerStyle}>
+      <Selection
+        ranges={[oldRange]}
+        selectedRangeId={oldRange.id}
+        overlayRectType="px"
+        markerStyle={markerStyle}
+      >
         {content()}
       </Selection>,
     );
@@ -392,7 +508,9 @@ describe('Selection style persistence', () => {
     );
 
     // Then: SVG 选中态使用 selectedHighlight。
-    expect(container.querySelector('svg rect[data-range-id="old-px"]')).toHaveStyle({ fill: 'rgba(255,193,7,0.45)' });
+    expect(container.querySelector('svg rect[data-range-id="old-px"]')).toHaveStyle({
+      fill: 'rgba(255,193,7,0.45)',
+    });
 
     // When: 渲染被选中的 percent range。
     rerender(
@@ -410,17 +528,26 @@ describe('Selection style persistence', () => {
     );
 
     // Then: percent overlay 同样使用 selectedHighlight。
-    expect(container.querySelector('.hsn-selection-percent-rect')).toHaveStyle({ backgroundColor: 'rgba(255,193,7,0.45)' });
+    expect(container.querySelector('.hsn-selection-percent-rect')).toHaveStyle({
+      backgroundColor: 'rgba(255,193,7,0.45)',
+    });
   });
 
   it('handles.preserve-string-border-width', () => {
     // Given: 用户传入合法 CSS 字符串 borderWidth。
     mockGeometry();
-    const capturedHandles: Array<{ owner: string; rangeId: string | null; style: CSSProperties }> = [];
-    const renderHandle = vi.fn((props: { owner: 'active-selection' | 'persisted-range'; rangeId: string | null; style: CSSProperties }) => {
-      capturedHandles.push({ owner: props.owner, rangeId: props.rangeId, style: props.style });
-      return <button type="button" data-testid="custom-handle" />;
-    });
+    const capturedHandles: Array<{ owner: string; rangeId: string | null; style: CSSProperties }> =
+      [];
+    const renderHandle = vi.fn(
+      (props: {
+        owner: 'active-selection' | 'persisted-range';
+        rangeId: string | null;
+        style: CSSProperties;
+      }) => {
+        capturedHandles.push({ owner: props.owner, rangeId: props.rangeId, style: props.style });
+        return <button type="button" data-testid="custom-handle" />;
+      },
+    );
     const range: SelectionRange = {
       id: 'styled',
       text: 'Deterministic',
@@ -429,18 +556,29 @@ describe('Selection style persistence', () => {
       createdAt: 1,
       overlayRectType: 'px',
       rects: [{ x: 40, y: 30, width: 80, height: 24 }],
-      markerStyle: { backgroundColor: 'rgba(64,156,255,0.25)', borderColor: '#1c7ed6', borderWidth: '0.125rem' },
+      markerStyle: {
+        backgroundColor: 'rgba(64,156,255,0.25)',
+        borderColor: '#1c7ed6',
+        borderWidth: '0.125rem',
+      },
     };
 
     // When
     render(
-      <Selection ranges={[range]} selectedRangeId={range.id} overlayRectType="px" renderHandle={renderHandle}>
+      <Selection
+        ranges={[range]}
+        selectedRangeId={range.id}
+        overlayRectType="px"
+        renderHandle={renderHandle}
+      >
         {content()}
       </Selection>,
     );
 
     // Then: 字符串 borderWidth 原样传给手柄，不追加 px。
-    const persistedHandle = capturedHandles.find((h) => h.owner === 'persisted-range' && h.rangeId === range.id);
+    const persistedHandle = capturedHandles.find(
+      (h) => h.owner === 'persisted-range' && h.rangeId === range.id,
+    );
     expect(persistedHandle?.style.borderWidth).toBe('0.125rem');
   });
 
@@ -472,7 +610,15 @@ describe('Selection style persistence', () => {
 
     // When: 更换旧 props
     rerender(
-      <Selection ref={ref} ranges={[range]} selectedRangeId={range.id} onSelect={onSelect} overlayRectType="px" highlightColor="green" selectionColor="purple">
+      <Selection
+        ref={ref}
+        ranges={[range]}
+        selectedRangeId={range.id}
+        onSelect={onSelect}
+        overlayRectType="px"
+        highlightColor="green"
+        selectionColor="purple"
+      >
         {content()}
       </Selection>,
     );

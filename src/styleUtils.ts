@@ -44,7 +44,9 @@ export function snapshotStyle(style: CSSProperties | undefined): CSSProperties |
 // ---------------------------------------------------------------------------
 
 /** 把旧版 `MarkerColorStyle` 转换为 CSSProperties。 */
-export function markerColorStyleToCssProperties(colorStyle: MarkerColorStyle | undefined): CSSProperties {
+export function markerColorStyleToCssProperties(
+  colorStyle: MarkerColorStyle | undefined,
+): CSSProperties {
   const result: CSSProperties = {};
   if (colorStyle === undefined) return result;
 
@@ -101,7 +103,9 @@ export function getEffectiveSelectedMarkerStyle(
   if (rangeStyle !== undefined) return rangeStyle;
   if (input.markerStyle !== undefined) return input.markerStyle;
 
-  const fromSelectedMarkerColors = markerColorStyleToCssProperties(input.markerColors?.selectedHighlight);
+  const fromSelectedMarkerColors = markerColorStyleToCssProperties(
+    input.markerColors?.selectedHighlight,
+  );
   if (hasVisualProperties(fromSelectedMarkerColors)) return fromSelectedMarkerColors;
 
   return resolveMarkerStyle(input);
@@ -138,12 +142,18 @@ export function createRangeStyleSnapshot(input: StyleInput): RangeStyleSnapshot 
 }
 
 /** 渲染时：range 已存储的样式优先，没有则回退到当前 props。 */
-export function getEffectiveMarkerStyle(rangeStyle: CSSProperties | undefined, input: StyleInput): CSSProperties | undefined {
+export function getEffectiveMarkerStyle(
+  rangeStyle: CSSProperties | undefined,
+  input: StyleInput,
+): CSSProperties | undefined {
   return rangeStyle ?? resolveMarkerStyle(input);
 }
 
 /** 渲染时：range 已存储的样式优先，没有则回退到当前 props。 */
-export function getEffectiveSelectionStyle(rangeStyle: CSSProperties | undefined, input: StyleInput): CSSProperties | undefined {
+export function getEffectiveSelectionStyle(
+  rangeStyle: CSSProperties | undefined,
+  input: StyleInput,
+): CSSProperties | undefined {
   return rangeStyle ?? resolveSelectionStyle(input);
 }
 
@@ -168,7 +178,8 @@ export function styleToSvgRectProps(style: CSSProperties | undefined): CSSProper
 
   const result: CSSProperties = {};
 
-  const fill = style.backgroundColor ?? (typeof style.background === 'string' ? style.background : undefined);
+  const fill =
+    style.backgroundColor ?? (typeof style.background === 'string' ? style.background : undefined);
   if (fill !== undefined) {
     result.fill = fill;
   }
@@ -199,7 +210,10 @@ export type PercentGeometryRect = {
 };
 
 /** 合并 percent 几何与视觉样式；几何属性必须覆盖样式中的冲突值。 */
-export function buildPercentRectStyle(rect: PercentGeometryRect, style: CSSProperties | undefined): CSSProperties {
+export function buildPercentRectStyle(
+  rect: PercentGeometryRect,
+  style: CSSProperties | undefined,
+): CSSProperties {
   const base: CSSProperties = style === undefined ? {} : { ...style };
   return {
     ...base,
@@ -222,8 +236,16 @@ export type HandleVisualStyle = {
 };
 
 /** 从 owner 样式推导手柄的视觉样式；无颜色时回退到旧版 markerColors.handle。 */
-export function deriveHandleVisualStyle(style: CSSProperties | undefined, fallbackHandle?: MarkerColorStyle): HandleVisualStyle {
-  const styleBackground = typeof style?.backgroundColor === 'string' ? style.backgroundColor : typeof style?.background === 'string' ? style.background : undefined;
+export function deriveHandleVisualStyle(
+  style: CSSProperties | undefined,
+  fallbackHandle?: MarkerColorStyle,
+): HandleVisualStyle {
+  const styleBackground =
+    typeof style?.backgroundColor === 'string'
+      ? style.backgroundColor
+      : typeof style?.background === 'string'
+        ? style.background
+        : undefined;
   const styleBorderColor = style?.borderColor;
   const styleBorderWidth = style?.borderWidth;
   const styleBorderStyle = style?.borderStyle;
@@ -240,7 +262,8 @@ export function deriveHandleVisualStyle(style: CSSProperties | undefined, fallba
   const fallback = markerColorStyleToCssProperties(fallbackHandle);
   if (fallback !== undefined) {
     return {
-      background: typeof fallback.backgroundColor === 'string' ? fallback.backgroundColor : undefined,
+      background:
+        typeof fallback.backgroundColor === 'string' ? fallback.backgroundColor : undefined,
       borderColor: fallback.borderColor,
       borderWidth: fallback.borderWidth,
       borderStyle: 'solid',
@@ -255,7 +278,10 @@ export function deriveHandleVisualStyle(style: CSSProperties | undefined, fallba
 // ---------------------------------------------------------------------------
 
 /** 浅比较两份 CSSProperties，忽略键顺序。 */
-export function styleShallowEqual(a: CSSProperties | undefined, b: CSSProperties | undefined): boolean {
+export function styleShallowEqual(
+  a: CSSProperties | undefined,
+  b: CSSProperties | undefined,
+): boolean {
   if (a === b) return true;
   if (a === undefined || b === undefined) return false;
 
