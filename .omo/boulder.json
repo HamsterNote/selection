@@ -1,0 +1,299 @@
+{
+  "schema_version": 2,
+  "active_work_id": "selection-rect-tool-7e70d533",
+  "works": {
+    "selection-rect-tool-7e70d533": {
+      "work_id": "selection-rect-tool-7e70d533",
+      "active_plan": "/home/zhangxiao/frontend/HamsterNote/selection/.omo/plans/selection-rect-tool.md",
+      "plan_name": "selection-rect-tool",
+      "status": "completed",
+      "started_at": "2026-07-02T08:30:42.420Z",
+      "updated_at": "2026-07-02T12:16:49.404Z",
+      "session_ids": [
+        "opencode:ses_0de0c5f2fffe1NHPe3EFBs71wF"
+      ],
+      "session_origins": {
+        "opencode:ses_0de0c5f2fffe1NHPe3EFBs71wF": "direct"
+      },
+      "agent": "atlas",
+      "task_sessions": {
+        "todo:1": {
+          "task_key": "todo:1",
+          "task_label": "1",
+          "task_title": "`renders handles for active drawing and persisted selected rect` — `renderHandle` spy called 4 times instead of 2.",
+          "session_id": "opencode:ses_0ddac90e5ffeDTqXZ1DrXMy4dI",
+          "agent": "Sisyphus-Junior",
+          "category": "visual-engineering",
+          "started_at": "2026-07-02T08:38:05.667Z",
+          "ended_at": "2026-07-02T10:25:53.494Z",
+          "elapsed_ms": 6467827,
+          "status": "completed",
+          "updated_at": "2026-07-02T10:25:53.494Z"
+        },
+        "todo:3": {
+          "task_key": "todo:3",
+          "task_label": "3",
+          "task_title": "`src/Selection.tsx`: Implement rect active drawing and confirmation path - expect rect draft appears after drag and confirms through popover/ref without text callbacks",
+          "session_id": "opencode:ses_0de020d5affe9NIaY9vF74Jfcz",
+          "agent": "Sisyphus-Junior",
+          "category": "deep",
+          "updated_at": "2026-07-02T08:52:54.003Z",
+          "started_at": "2026-07-02T08:52:14.124Z",
+          "status": "completed",
+          "ended_at": "2026-07-02T08:52:54.003Z",
+          "elapsed_ms": 39879
+        },
+        "todo:4": {
+          "task_key": "todo:4",
+          "task_label": "4",
+          "task_title": "`src/Selection.tsx` + `src/style.css`: Render rect overlays, popovers, and hit-testing - expect active/persisted rects are visible/selectable in px and percent modes",
+          "session_id": "opencode:ses_0ddf701f8ffeQSRnRR16E0GClY",
+          "agent": "Sisyphus-Junior",
+          "started_at": "2026-07-02T09:02:43.305Z",
+          "status": "completed",
+          "updated_at": "2026-07-02T09:15:48.619Z",
+          "ended_at": "2026-07-02T09:15:48.619Z",
+          "elapsed_ms": 785314
+        },
+        "todo:5": {
+          "task_key": "todo:5",
+          "task_label": "5",
+          "task_title": "`src/Selection.tsx`: Add rect start/end handles and resize behavior - expect selected or active rect dimensions update by endpoint drag",
+          "session_id": "opencode:ses_0dda1f7f3ffe6PLGxcQ74MAQcJ",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "started_at": "2026-07-02T09:46:50.023Z",
+          "status": "completed",
+          "updated_at": "2026-07-02T10:39:28.314Z",
+          "ended_at": "2026-07-02T10:39:28.314Z",
+          "elapsed_ms": 3158291
+        },
+        "todo:6": {
+          "task_key": "todo:6",
+          "task_label": "6",
+          "task_title": "`src/Selection*.test.tsx`: Lock tool switching, mutual exclusion, linked non-corruption, and text backward compatibility - expect old text behavior and new rect mode coexist safely",
+          "session_id": "opencode:ses_0dd959a15ffer1VYBpoO5qroUI",
+          "agent": "Sisyphus-Junior",
+          "category": "deep",
+          "updated_at": "2026-07-02T10:49:22.619Z",
+          "started_at": "2026-07-02T10:49:02.598Z",
+          "status": "completed",
+          "ended_at": "2026-07-02T10:49:22.619Z",
+          "elapsed_ms": 20021
+        },
+        "todo:8": {
+          "task_key": "todo:8",
+          "task_label": "8",
+          "task_title": "`package scripts`: Run complete quality gates and browser QA - expect implementation is shippable and evidence-backed",
+          "session_id": "opencode:ses_0dd8ba944ffeE5tePkDGNh26jr",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-07-02T11:16:31.119Z",
+          "started_at": "2026-07-02T11:15:32.945Z",
+          "status": "completed",
+          "ended_at": "2026-07-02T11:16:31.119Z",
+          "elapsed_ms": 58174
+        },
+        "final-wave:f4": {
+          "task_key": "final-wave:f4",
+          "task_label": "F4",
+          "task_title": "Scope fidelity/security-ish review: verify no linked text data corruption, no unrelated dirty files overwritten, no pointer-events regression, and no scope creep features (move/rotate/multi-select/etc.). APPROVE only if clean.",
+          "session_id": "opencode:ses_0dd73b054ffeT78tMwcumtAkoY",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-07-02T12:15:29.901Z",
+          "started_at": "2026-07-02T11:22:11.419Z",
+          "status": "completed",
+          "ended_at": "2026-07-02T12:15:29.900Z",
+          "elapsed_ms": 3198481
+        },
+        "final-wave:f3": {
+          "task_key": "final-wave:f3",
+          "task_label": "F3",
+          "task_title": "Real manual QA: run the demo in a browser and exercise text default, rect draw/confirm/delete, px/percent, resize handles, popover click protection, and tool switching. APPROVE only with screenshot/notes evidence.",
+          "session_id": "opencode:ses_0dd73d190ffeuZAnHWPUz2nxTp",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-07-02T12:15:26.950Z",
+          "started_at": "2026-07-02T11:22:20.174Z",
+          "status": "completed",
+          "ended_at": "2026-07-02T12:15:26.950Z",
+          "elapsed_ms": 3186776
+        },
+        "final-wave:f2": {
+          "task_key": "final-wave:f2",
+          "task_label": "F2",
+          "task_title": "Code quality review: inspect API naming, type safety, state separation, event listener cleanup, pointer/touch behavior, and absence of text/rect callback mixing. APPROVE only if no high/medium issues remain.",
+          "session_id": "opencode:ses_0dd73f888ffeHKMwWm70lFtNI9",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-07-02T12:15:23.456Z",
+          "started_at": "2026-07-02T11:24:05.983Z",
+          "status": "completed",
+          "ended_at": "2026-07-02T12:15:23.456Z",
+          "elapsed_ms": 3077473
+        },
+        "final-wave:f1": {
+          "task_key": "final-wave:f1",
+          "task_label": "F1",
+          "task_title": "Plan compliance audit: independently compare changed files against this plan. APPROVE only if every Must Have is implemented, every Must NOT Have is absent, and each todo has evidence.",
+          "session_id": "opencode:ses_0dd43bfebffe0sTulVRzOMy7jK",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "started_at": "2026-07-02T11:26:05.742Z",
+          "status": "completed",
+          "updated_at": "2026-07-02T12:15:19.890Z",
+          "ended_at": "2026-07-02T12:15:19.890Z",
+          "elapsed_ms": 2954148
+        }
+      },
+      "ended_at": "2026-07-02T12:16:49.404Z",
+      "elapsed_ms": 13566984
+    }
+  },
+  "active_plan": "/home/zhangxiao/frontend/HamsterNote/selection/.omo/plans/selection-rect-tool.md",
+  "started_at": "2026-07-02T08:30:42.420Z",
+  "status": "completed",
+  "updated_at": "2026-07-02T12:16:49.404Z",
+  "session_ids": [
+    "opencode:ses_0de0c5f2fffe1NHPe3EFBs71wF"
+  ],
+  "session_origins": {
+    "opencode:ses_0de0c5f2fffe1NHPe3EFBs71wF": "direct"
+  },
+  "plan_name": "selection-rect-tool",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "`renders handles for active drawing and persisted selected rect` — `renderHandle` spy called 4 times instead of 2.",
+      "session_id": "opencode:ses_0ddac90e5ffeDTqXZ1DrXMy4dI",
+      "agent": "Sisyphus-Junior",
+      "category": "visual-engineering",
+      "started_at": "2026-07-02T08:38:05.667Z",
+      "ended_at": "2026-07-02T10:25:53.494Z",
+      "elapsed_ms": 6467827,
+      "status": "completed",
+      "updated_at": "2026-07-02T10:25:53.494Z"
+    },
+    "todo:3": {
+      "task_key": "todo:3",
+      "task_label": "3",
+      "task_title": "`src/Selection.tsx`: Implement rect active drawing and confirmation path - expect rect draft appears after drag and confirms through popover/ref without text callbacks",
+      "session_id": "opencode:ses_0de020d5affe9NIaY9vF74Jfcz",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-07-02T08:52:54.003Z",
+      "started_at": "2026-07-02T08:52:14.124Z",
+      "status": "completed",
+      "ended_at": "2026-07-02T08:52:54.003Z",
+      "elapsed_ms": 39879
+    },
+    "todo:4": {
+      "task_key": "todo:4",
+      "task_label": "4",
+      "task_title": "`src/Selection.tsx` + `src/style.css`: Render rect overlays, popovers, and hit-testing - expect active/persisted rects are visible/selectable in px and percent modes",
+      "session_id": "opencode:ses_0ddf701f8ffeQSRnRR16E0GClY",
+      "agent": "Sisyphus-Junior",
+      "started_at": "2026-07-02T09:02:43.305Z",
+      "status": "completed",
+      "updated_at": "2026-07-02T09:15:48.619Z",
+      "ended_at": "2026-07-02T09:15:48.619Z",
+      "elapsed_ms": 785314
+    },
+    "todo:5": {
+      "task_key": "todo:5",
+      "task_label": "5",
+      "task_title": "`src/Selection.tsx`: Add rect start/end handles and resize behavior - expect selected or active rect dimensions update by endpoint drag",
+      "session_id": "opencode:ses_0dda1f7f3ffe6PLGxcQ74MAQcJ",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "started_at": "2026-07-02T09:46:50.023Z",
+      "status": "completed",
+      "updated_at": "2026-07-02T10:39:28.314Z",
+      "ended_at": "2026-07-02T10:39:28.314Z",
+      "elapsed_ms": 3158291
+    },
+    "todo:6": {
+      "task_key": "todo:6",
+      "task_label": "6",
+      "task_title": "`src/Selection*.test.tsx`: Lock tool switching, mutual exclusion, linked non-corruption, and text backward compatibility - expect old text behavior and new rect mode coexist safely",
+      "session_id": "opencode:ses_0dd959a15ffer1VYBpoO5qroUI",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-07-02T10:49:22.619Z",
+      "started_at": "2026-07-02T10:49:02.598Z",
+      "status": "completed",
+      "ended_at": "2026-07-02T10:49:22.619Z",
+      "elapsed_ms": 20021
+    },
+    "todo:8": {
+      "task_key": "todo:8",
+      "task_label": "8",
+      "task_title": "`package scripts`: Run complete quality gates and browser QA - expect implementation is shippable and evidence-backed",
+      "session_id": "opencode:ses_0dd8ba944ffeE5tePkDGNh26jr",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-07-02T11:16:31.119Z",
+      "started_at": "2026-07-02T11:15:32.945Z",
+      "status": "completed",
+      "ended_at": "2026-07-02T11:16:31.119Z",
+      "elapsed_ms": 58174
+    },
+    "final-wave:f4": {
+      "task_key": "final-wave:f4",
+      "task_label": "F4",
+      "task_title": "Scope fidelity/security-ish review: verify no linked text data corruption, no unrelated dirty files overwritten, no pointer-events regression, and no scope creep features (move/rotate/multi-select/etc.). APPROVE only if clean.",
+      "session_id": "opencode:ses_0dd73b054ffeT78tMwcumtAkoY",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-07-02T12:15:29.901Z",
+      "started_at": "2026-07-02T11:22:11.419Z",
+      "status": "completed",
+      "ended_at": "2026-07-02T12:15:29.900Z",
+      "elapsed_ms": 3198481
+    },
+    "final-wave:f3": {
+      "task_key": "final-wave:f3",
+      "task_label": "F3",
+      "task_title": "Real manual QA: run the demo in a browser and exercise text default, rect draw/confirm/delete, px/percent, resize handles, popover click protection, and tool switching. APPROVE only with screenshot/notes evidence.",
+      "session_id": "opencode:ses_0dd73d190ffeuZAnHWPUz2nxTp",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-07-02T12:15:26.950Z",
+      "started_at": "2026-07-02T11:22:20.174Z",
+      "status": "completed",
+      "ended_at": "2026-07-02T12:15:26.950Z",
+      "elapsed_ms": 3186776
+    },
+    "final-wave:f2": {
+      "task_key": "final-wave:f2",
+      "task_label": "F2",
+      "task_title": "Code quality review: inspect API naming, type safety, state separation, event listener cleanup, pointer/touch behavior, and absence of text/rect callback mixing. APPROVE only if no high/medium issues remain.",
+      "session_id": "opencode:ses_0dd73f888ffeHKMwWm70lFtNI9",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-07-02T12:15:23.456Z",
+      "started_at": "2026-07-02T11:24:05.983Z",
+      "status": "completed",
+      "ended_at": "2026-07-02T12:15:23.456Z",
+      "elapsed_ms": 3077473
+    },
+    "final-wave:f1": {
+      "task_key": "final-wave:f1",
+      "task_label": "F1",
+      "task_title": "Plan compliance audit: independently compare changed files against this plan. APPROVE only if every Must Have is implemented, every Must NOT Have is absent, and each todo has evidence.",
+      "session_id": "opencode:ses_0dd43bfebffe0sTulVRzOMy7jK",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "started_at": "2026-07-02T11:26:05.742Z",
+      "status": "completed",
+      "updated_at": "2026-07-02T12:15:19.890Z",
+      "ended_at": "2026-07-02T12:15:19.890Z",
+      "elapsed_ms": 2954148
+    }
+  },
+  "agent": "atlas",
+  "ended_at": "2026-07-02T12:16:49.404Z",
+  "elapsed_ms": 13566984
+}

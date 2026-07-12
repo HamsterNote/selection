@@ -1,6 +1,6 @@
 {
   "name": "@hamster-note/selection",
-  "version": "0.0.0",
+  "version": "0.0.2-beta.1",
   "description": "React 文本选区组件库，用于 HamsterNote 笔记应用",
   "type": "module",
   "license": "MIT",
@@ -45,7 +45,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc -b --noEmit",
-    "preview": "vite preview --config vite.demo.config.ts"
+    "preview": "vite preview --config vite.demo.config.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "peerDependencies": {
     "react": ">=19.0.0",
@@ -53,6 +55,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
     "@types/node": "^26.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -62,13 +67,16 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.61.1",
     "prettier": "^3.8.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.0",
     "vite": "^8.0.16",
-    "vite-plugin-dts": "^5.0.2"
+    "vite-plugin-dts": "^5.0.2",
+    "vitest": "^3.1.4"
   },
   "publishConfig": {
     "access": "public",

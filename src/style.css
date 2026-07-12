@@ -3,13 +3,41 @@
   line-height: 1.8;
   cursor: text;
   word-break: break-word;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
 
-/* 内容层：children 原样渲染 */
 .hsn-selection-content {
   position: relative;
   z-index: 1;
   user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+.hsn-selection-container--rect-tool {
+  cursor: crosshair;
+}
+
+.hsn-selection-container--rect-tool .hsn-selection-content {
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 触摸设备（主要输入为粗指针 / pointer: coarse）：
+   将内容层设为 user-select: none，阻止浏览器在长按时启动原生选区 UI
+   （蓝色高亮 + 水滴形拖拽手柄）。组件通过自定义长按检测 + caretRangeFromPoint
+   程序化创建选区，绕过原生 selection UI —— 程序化选区不受 user-select: none 限制，
+   且不会渲染原生手柄/高亮，保持「长按选词」功能由自定义 Overlay + Handle 接管。
+   ::selection { background: transparent } 仍然兜底隐藏程序化选区的高亮。 */
+@media (pointer: coarse) {
+  .hsn-selection-content {
+    user-select: none;
+    -webkit-user-select: none;
+  }
 }
 
 /* 隐藏原生选择背景：自定义 Overlay 替代 */
@@ -26,31 +54,29 @@
   color: inherit;
 }
 
-/* Overlay 层：与内容层重叠的 SVG 画布。
-   宽高 100% 让 SVG 视口与容器盒一致；坐标即像素。 */
+/* Overlay 层：SVG 画布，位于内容层之上。
+   SVG 自身 pointer-events: none，不拦截鼠标；
+   所有 rect 子元素也保持 pointer-events: none，
+   这样用户仍可在高亮区域内拖选新文本，点击的命中检测由 container 上的 click handler 走坐标算法完成。 */
 .hsn-selection-overlay {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 0;
+  z-index: 2;
   overflow: visible;
 }
 
-/* SVG <rect> 通用样式：仅做视觉过渡，几何属性由 React 设置 */
+/* SVG <rect> 通用样式：仅做视觉过渡，几何属性由 React 设置；不拦截鼠标 */
 .hsn-selection-rect {
   transition: fill 0.15s ease;
+  pointer-events: none;
 }
 
-/* 持久高亮（未选中态）：黄色，可点击选中 */
+/* 持久高亮（未选中态）：黄色 */
 .hsn-selection-rect--highlight {
   fill: rgba(255, 213, 79, 0.4);
-  pointer-events: auto;
-  cursor: pointer;
-}
-.hsn-selection-rect--highlight:hover {
-  fill: rgba(255, 213, 79, 0.7);
 }
 
 /* 选中的持久高亮：更深的黄色填充 + 橙色描边，视觉上与未选中态区分 */
@@ -58,14 +84,64 @@
   fill: rgba(255, 193, 7, 0.55);
   stroke: rgba(255, 152, 0, 0.9);
   stroke-width: 1.5;
-  pointer-events: auto;
-  cursor: pointer;
 }
 
-/* 当前选择中：粉色，不拦截鼠标（不影响 Selection 拖动） */
+/* 当前选择中：粉色 */
 .hsn-selection-rect--active {
   fill: rgba(255, 105, 180, 0.45);
+}
+
+/* ---- Percent-based overlay (div 替代 SVG) ---- */
+
+/* 百分比覆盖容器：与 SVG overlay 同级、同定位策略 */
+.hsn-selection-percent-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+
+/* 百分比矩形基类：几何由内联 style 设置（percent 字符串），CSS 提供视觉与过渡 */
+.hsn-selection-percent-rect {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 2px;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+/* 持久高亮（未选中态）：黄色，与 .hsn-selection-rect--highlight 同色 */
+.hsn-selection-percent-rect-highlight {
+  background-color: rgba(255, 213, 79, 0.4);
+}
+
+/* 选中的持久高亮：更深黄色填充 + 橙色描边，与 .hsn-selection-rect--selected 同色 */
+.hsn-selection-percent-rect-selected {
+  background-color: rgba(255, 193, 7, 0.55);
+  border: 1.5px solid rgba(255, 152, 0, 0.9);
+}
+
+/* 当前选择中：粉色，与 .hsn-selection-rect--active 同色 */
+.hsn-selection-percent-rect-active {
+  background-color: rgba(255, 105, 180, 0.45);
+}
+
+/* Popover 层：浮在 overlay 之上，位置由内联 style 提供（容器坐标系）。
+   transform 把元素的水平中心、底边对齐到 (left, top) 锚点；
+   margin-top 提供一个小气泡间距。 */
+.hsn-selection-popover {
+  position: absolute;
+  z-index: 3;
+  transform: translate(-50%, -100%);
+  margin-top: -6px;
+  pointer-events: auto;
+  user-select: none;
 }
 
 /* 工具栏 */
@@ -98,4 +174,37 @@
   &:hover {
     background: rgba(255, 255, 255, 0.15);
   }
+}
+
+/**
+ * 选区首尾拖拽手柄：绝对定位的粉色圆形。
+ * 用 <button> 渲染以获得语义化标签，但重置所有原生 button 样式。
+ * left/top 由内联 style 提供（容器坐标系），transform 把元素中心对齐到该坐标。
+ * touch-action: none 让 pointer 事件不被触摸滚动劫持。
+ */
+.hsn-selection-handle {
+  position: absolute;
+  z-index: 4;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  margin: 0;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #ff4fa3;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: ew-resize;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+  transform: translate(-50%, -50%);
+
+  &:focus {
+    outline: none;
+  }
+}
+
+/* 拖拽激活时手柄穿透鼠标，避免 caretRangeFromPoint 命中手柄自身导致选区跳变 */
+.hsn-selection-handle--dragging {
+  pointer-events: none;
 }
