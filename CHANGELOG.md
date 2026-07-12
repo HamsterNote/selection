@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0] - 2026-07-12
+
+### Added
+
+- Rect tool mode with cross-tool selection compatibility
+- New test suites: `demo.app.test.tsx`, expanded `Selection.rect.test.tsx`
+
+### Changed
+
+- Refactored `Selection.tsx` core rendering and interaction logic (+1031/-531 lines)
+- Updated `styleUtils.ts` and `useTextSelection.ts` for rect tool support
+- Expanded test coverage across all selection modules
+
+### Fixed
+
+- Rect tool handle rendering and linked-mode cross-container guard
+- Mobile selection: token-based click skip, multi-finger guard, blank-click clear
+- Selection overlay recomputation on scroll
+- Log key duplicates in demo App
+- CI configuration: added test step, ignore `.omo/`, alias package for vitest
+
 ## [0.0.2-beta.1] - 2026-07-02
 
 ### 变更
