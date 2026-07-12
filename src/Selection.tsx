@@ -879,10 +879,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     ro.observe(container);
     window.addEventListener('resize', recomputePersistedRects);
     window.addEventListener('resize', recomputePersistedSelectionRects);
+    document.addEventListener('scroll', recomputePersistedRects, true);
+    document.addEventListener('scroll', recomputePersistedSelectionRects, true);
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', recomputePersistedRects);
       window.removeEventListener('resize', recomputePersistedSelectionRects);
+      document.removeEventListener('scroll', recomputePersistedRects, true);
+      document.removeEventListener('scroll', recomputePersistedSelectionRects, true);
     };
   }, [recomputePersistedRects, recomputePersistedSelectionRects]);
 
@@ -1532,11 +1536,21 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       // 导致对 Popover 位置坐标做 hit-test 选中了下方的高亮。
       // 此检查需在 hasSelection 分支之前，避免点击 popover 按钮时误清除文字选区。
       const target = e.target;
+      if (e.defaultPrevented) return;
       if (target instanceof Node) {
         const popoverEl = popoverRef.current;
         const selectionPopoverEl = selectionPopoverRef.current;
         if (popoverEl?.contains(target)) return;
         if (selectionPopoverEl?.contains(target)) return;
+      }
+
+      if (
+        target instanceof Element &&
+        target.closest(
+          'button, a, input, textarea, select, option, label, summary, details, [role="button"], [contenteditable="true"]',
+        )
+      ) {
+        return;
       }
 
       if (activeRect) {

@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { type CSSProperties, useCallback, useEffect, useState } from 'react';
 import { pixelRectsToPercentRects } from './geometry';
 import { getRegisteredContainers, resolveEndpoint } from './linkedRegistry';
 import type {
@@ -341,8 +340,10 @@ export function useTextSelection(
 
   useEffect(() => {
     document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('scroll', handleSelectionChange, true);
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('scroll', handleSelectionChange, true);
     };
   }, [handleSelectionChange]);
 
