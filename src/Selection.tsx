@@ -81,6 +81,18 @@ type ActiveSelectionRect = {
   rect: OverlayRect;
 };
 
+type DefaultTextHandlePresentation = {
+  readonly circleStyle: CSSProperties;
+  readonly lineStyle: CSSProperties;
+};
+
+type DefaultTextHandlePresentationInput = {
+  readonly rect: OverlayRect | PercentOverlayRect;
+  readonly type: SelectionHandleType;
+  readonly overlayRectType: OverlayRectType;
+  readonly ownerStyle: CSSProperties | undefined;
+};
+
 type ClickPoint = {
   readonly clientX: number;
   readonly clientY: number;
@@ -2248,6 +2260,25 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     return s;
   };
 
+  const buildDefaultTextHandlePresentation = ({
+    rect,
+    type,
+    overlayRectType,
+    ownerStyle,
+  }: DefaultTextHandlePresentationInput): DefaultTextHandlePresentation => {
+    const left = type === 'start' ? rect.x : rect.x + rect.width;
+    const circleTop = type === 'start' ? rect.y : rect.y + rect.height;
+    const circleStyle = buildHandleStyle(left, circleTop, overlayRectType, ownerStyle);
+    const lineStyle: CSSProperties = {
+      left: buildPositionStyleValue(left, overlayRectType),
+      top: buildPositionStyleValue(rect.y, overlayRectType),
+      height: buildPositionStyleValue(rect.height, overlayRectType),
+      pointerEvents: 'none',
+    };
+    if (typeof circleStyle.background === 'string') lineStyle.background = circleStyle.background;
+    return { circleStyle, lineStyle };
+  };
+
   // 渲染单个手柄：renderHandle 优先，返回 null 则隐藏（不留 fallback），否则用默认 <button>。
   const renderSingleHandle = (
     type: SelectionHandleType,
@@ -2262,6 +2293,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     positionUnit: OverlayRectType = legacyOverlayRectType,
     target: 'text' | 'rect' = 'text',
     rectId: string | null = null,
+    defaultTextPresentation?: DefaultTextHandlePresentation,
   ) => {
     const handleProps: HandleRenderProps = {
       type,
@@ -2282,13 +2314,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       if (rendered === null) return null;
       return rendered;
     }
-    return (
+    const button = (
       <button
         type="button"
         className={className}
         tabIndex={-1}
         aria-label={ariaLabel}
-        style={style}
+        style={defaultTextPresentation?.circleStyle ?? style}
         data-rect-id={rectId ?? ''}
         data-range-id={rangeId ?? ''}
         ref={(el) => {
@@ -2308,6 +2340,17 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         onMouseDown={onDragStart}
         onPointerDown={handleProps.onPointerDown}
       />
+    );
+    if (target !== 'text' || defaultTextPresentation === undefined) return button;
+    return (
+      <>
+        <span
+          className={`hsn-selection-handle-line hsn-selection-handle-line--${type}`}
+          style={defaultTextPresentation.lineStyle}
+          aria-hidden="true"
+        />
+        {button}
+      </>
     );
   };
 
@@ -2710,6 +2753,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   displayActiveOverlayRectType,
                   'text',
                   null,
+                  buildDefaultTextHandlePresentation({
+                    rect: first,
+                    type: 'start',
+                    overlayRectType: displayActiveOverlayRectType,
+                    ownerStyle: activeSelectionStyle,
+                  }),
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -2730,6 +2779,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   displayActiveOverlayRectType,
                   'text',
                   null,
+                  buildDefaultTextHandlePresentation({
+                    rect: last,
+                    type: 'end',
+                    overlayRectType: displayActiveOverlayRectType,
+                    ownerStyle: activeSelectionStyle,
+                  }),
                 )}
             </>
           );
@@ -2857,6 +2912,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   entry.overlayRectType,
                   'text',
                   null,
+                  buildDefaultTextHandlePresentation({
+                    rect: first,
+                    type: 'start',
+                    overlayRectType: entry.overlayRectType,
+                    ownerStyle: persistedHandleStyle,
+                  }),
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -2877,6 +2938,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   entry.overlayRectType,
                   'text',
                   null,
+                  buildDefaultTextHandlePresentation({
+                    rect: last,
+                    type: 'end',
+                    overlayRectType: entry.overlayRectType,
+                    ownerStyle: persistedHandleStyle,
+                  }),
                 )}
             </>
           );

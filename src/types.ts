@@ -528,7 +528,7 @@ export interface SelectionProps {
    *
    * 返回的 React 节点应在其 `onPointerDown` 中调用 `props.onPointerDown`
    * 以启用库内置拖拽逻辑。返回 `null` 表示隐藏该手柄。
-   * 不传时使用内置圆形 `<button>` 手柄。
+    * 不传时文本选区使用内置竖线加圆形 `<button>` 手柄，矩形选区使用圆形 `<button>` 手柄。
    */
   renderHandle?: (props: HandleRenderProps) => ReactNode;
   /**
