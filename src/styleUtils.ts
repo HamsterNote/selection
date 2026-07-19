@@ -235,7 +235,28 @@ export type HandleVisualStyle = {
   readonly borderStyle?: string;
 };
 
-/** 从 owner 样式推导手柄的视觉样式；无颜色时回退到旧版 markerColors.handle。 */
+function makeColorOpaque(color: string): string {
+  const hexMatch = color.match(/^#([\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    if (hex?.length === 4) return `#${hex.slice(0, 3)}`;
+    if (hex?.length === 8) return `#${hex.slice(0, 6)}`;
+    return color;
+  }
+
+  const legacyMatch = color.match(/^rgba\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*[^)]+\)$/i);
+  if (legacyMatch) {
+    const [, red, green, blue] = legacyMatch;
+    return `rgb(${red?.trim()}, ${green?.trim()}, ${blue?.trim()})`;
+  }
+
+  const modernMatch = color.match(/^rgb\(\s*(.*?)\s*\/\s*[^)]+\)$/i);
+  if (modernMatch?.[1]) return `rgb(${modernMatch[1].trim()})`;
+
+  return color;
+}
+
+/** 从 owner 样式推导不透明手柄的视觉样式；无颜色时回退到旧版 markerColors.handle。 */
 export function deriveHandleVisualStyle(
   style: CSSProperties | undefined,
   fallbackHandle?: MarkerColorStyle,
@@ -252,7 +273,7 @@ export function deriveHandleVisualStyle(
 
   if (styleBackground !== undefined || styleBorderColor !== undefined) {
     return {
-      background: styleBackground,
+      background: styleBackground === undefined ? undefined : makeColorOpaque(styleBackground),
       borderColor: styleBorderColor,
       borderWidth: styleBorderWidth,
       borderStyle: styleBorderStyle,
@@ -263,7 +284,9 @@ export function deriveHandleVisualStyle(
   if (fallback !== undefined) {
     return {
       background:
-        typeof fallback.backgroundColor === 'string' ? fallback.backgroundColor : undefined,
+        typeof fallback.backgroundColor === 'string'
+          ? makeColorOpaque(fallback.backgroundColor)
+          : undefined,
       borderColor: fallback.borderColor,
       borderWidth: fallback.borderWidth,
       borderStyle: 'solid',

@@ -458,6 +458,28 @@ describe('deriveHandleVisualStyle', () => {
     expect(result.borderStyle).toBe('solid');
   });
 
+  it('makes-rgba-backgrounds-opaque: 手柄沿用高亮颜色但移除透明度', () => {
+    // Given: 高亮本身需要半透明，而手柄圆圈必须保持同色且完全不透明
+    const style: CSSProperties = { backgroundColor: 'rgba(244, 114, 182, 0.45)' };
+
+    // When
+    const result = deriveHandleVisualStyle(style);
+
+    // Then
+    expect(result.background).toBe('rgb(244, 114, 182)');
+  });
+
+  it('makes-alpha-hex-fallback-opaque: 旧版手柄颜色移除十六进制 alpha 通道', () => {
+    // Given: 旧版 markerColors.handle 使用带 alpha 的八位十六进制颜色
+    const fallbackHandle: MarkerColorStyle = { fill: '#409cffa0' };
+
+    // When
+    const result = deriveHandleVisualStyle(undefined, fallbackHandle);
+
+    // Then
+    expect(result.background).toBe('#409cff');
+  });
+
   it('returns-undefined-values-when-nothing-available: 无任何来源时属性为 undefined', () => {
     // Given
     const style: CSSProperties = {};

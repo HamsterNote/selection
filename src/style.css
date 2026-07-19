@@ -177,11 +177,19 @@
 }
 
 /**
- * 选区首尾拖拽手柄：绝对定位的粉色圆形。
- * 用 <button> 渲染以获得语义化标签，但重置所有原生 button 样式。
- * left/top 由内联 style 提供（容器坐标系），transform 把元素中心对齐到该坐标。
- * touch-action: none 让 pointer 事件不被触摸滚动劫持。
+ * 文本选区手柄由竖线和圆形 <button> 组成。竖线只负责视觉表达且不参与命中，
+ * 圆圈保留完整拖拽语义；矩形选区继续只使用圆形 <button>。
  */
+.hsn-selection-handle-line {
+  position: absolute;
+  z-index: 3;
+  width: 2px;
+  background: #ff4fa3;
+  pointer-events: none;
+  user-select: none;
+  transform: translateX(-50%);
+}
+
 .hsn-selection-handle {
   position: absolute;
   z-index: 4;

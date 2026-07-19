@@ -397,7 +397,7 @@ describe('Selection style persistence', () => {
     // Then: 活跃手柄应使用 selectionStyle 颜色
     const activeHandles = capturedHandles.filter((h) => h.owner === 'active-selection');
     expect(activeHandles.length).toBeGreaterThan(0);
-    expect(activeHandles[0]?.style.background).toBe('rgba(244,114,182,0.45)');
+    expect(activeHandles[0]?.style.background).toBe('rgb(244, 114, 182)');
 
     // When: 确认高亮
     act(() => {
@@ -429,7 +429,7 @@ describe('Selection style persistence', () => {
       (h) => h.owner === 'persisted-range' && h.rangeId !== null,
     );
     expect(persistedHandles.length).toBeGreaterThan(0);
-    expect(persistedHandles[0]?.style.background).toBe('rgba(64,156,255,0.25)');
+    expect(persistedHandles[0]?.style.background).toBe('rgb(64, 156, 255)');
     expect(persistedHandles[0]?.style.borderColor).toBe('#1c7ed6');
     expect(selectedRangeId).toBe(range.id);
   });

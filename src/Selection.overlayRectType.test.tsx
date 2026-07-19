@@ -393,6 +393,81 @@ describe('Selection overlayRectType', () => {
     expect(end!.positionUnit).toBe('percent');
   });
 
+  it('selection.default-text-handles.use-mobile-line-and-circle-geometry', () => {
+    // Given: percent range rect 为 { x:10, y:10, w:20, h:8 }
+    mockGeometry();
+
+    // When: 使用内置文本 range handle 渲染选中的持久高亮
+    const { container } = render(
+      <Selection
+        ranges={[percentRange()]}
+        selectedRangeId="stored-percent"
+        overlayRectType="percent"
+        markerStyle={{ backgroundColor: 'rgba(64, 156, 255, 0.25)' }}
+      >
+        {content()}
+      </Selection>,
+    );
+
+    // Then: 竖线覆盖完整行高；起点圆心在线顶端，终点圆心在线底端
+    const lines = container.querySelectorAll('.hsn-selection-handle-line');
+    const handles = container.querySelectorAll('.hsn-selection-handle:not(.hsn-selection-handle-rect)');
+    expect(lines).toHaveLength(2);
+    expect(handles).toHaveLength(2);
+    expect(lines[0]).toHaveStyle({
+      left: '10%',
+      top: '10%',
+      height: '8%',
+      background: 'rgb(64, 156, 255)',
+      pointerEvents: 'none',
+    });
+    expect(lines[1]).toHaveStyle({
+      left: '30%',
+      top: '10%',
+      height: '8%',
+      background: 'rgb(64, 156, 255)',
+      pointerEvents: 'none',
+    });
+    expect(handles[0]).toHaveStyle({
+      left: '10%',
+      top: '10%',
+      background: 'rgb(64, 156, 255)',
+    });
+    expect(handles[1]).toHaveStyle({
+      left: '30%',
+      top: '18%',
+      background: 'rgb(64, 156, 255)',
+    });
+    expect(lines[0]).not.toHaveClass('hsn-selection-handle');
+    expect(lines[1]).not.toHaveClass('hsn-selection-handle');
+  });
+
+  it('selection.default-text-handles.drag-starts-only-from-circle', () => {
+    // Given: 内置文本手柄由无命中竖线与可拖拽圆形按钮组成
+    mockGeometry();
+    const { container } = render(
+      <Selection ranges={[percentRange()]} selectedRangeId="stored-percent">
+        {content()}
+      </Selection>,
+    );
+    const line = container.querySelector('.hsn-selection-handle-line--start');
+    const circle = container.querySelector('.hsn-selection-handle--start');
+    if (!(line instanceof HTMLElement)) throw new TypeError('Expected start handle line');
+    if (!(circle instanceof HTMLElement)) throw new TypeError('Expected start handle circle');
+
+    // When: 在竖线上派发 pointerdown
+    fireEvent.pointerDown(line, { pointerId: 1, pointerType: 'mouse' });
+
+    // Then: 不进入拖拽，圆圈仍保持可命中
+    expect(circle.style.pointerEvents).not.toBe('none');
+
+    // When: 在圆圈上派发 pointerdown
+    fireEvent.pointerDown(circle, { pointerId: 2, pointerType: 'mouse' });
+
+    // Then: 圆圈进入拖拽并立即停止自身命中，避免拖动时拦截文字 caret
+    expect(circle.style.pointerEvents).toBe('none');
+  });
+
   it('selection.percent-popover.persisted-uses-percent-anchor', () => {
     // Given: percentRange rect { x:10, y:10, w:20, h:8 }, popover anchor = (x+w/2, y) = (20, 10)
     mockGeometry();
