@@ -916,6 +916,67 @@ describe('Selection overlayRectType', () => {
     expect(finalData?.activeRange).toBeNull();
   });
 
+  it('selection.mobile-linked-range.publishes-active-range-without-native-selection', () => {
+    // Given: coarse-pointer long press resolves a word through setFromRange,
+    // while the browser-native Selection remains collapsed and empty.
+    vi.useFakeTimers();
+    try {
+      mockGeometry();
+      stubCoarsePointer();
+      const onChange = vi.fn();
+      const linkedData = {
+        items: [],
+        selectedRangeId: null,
+        selectionOrder: ['page-a'],
+        activeRange: null,
+      } satisfies LinkedSelectionData;
+      const { container } = render(
+        <Selection
+          selectionId="page-a"
+          linkedMode={true}
+          linkedData={linkedData}
+          ranges={[]}
+          onLinkedDataChange={onChange}
+        >
+          {content()}
+        </Selection>,
+      );
+      const host = selectionContainer(container);
+      const paragraph = container.querySelector('[data-testid="first-paragraph"]');
+      if (!paragraph) throw new TypeError('Expected first paragraph fixture');
+      const textNode = textNodeFrom(paragraph);
+      const caretRange = document.createRange();
+      caretRange.setStart(textNode, 5);
+      caretRange.collapse(true);
+      Object.defineProperty(document, 'caretRangeFromPoint', {
+        configurable: true,
+        value: vi.fn(() => caretRange),
+      });
+      document.getSelection()?.removeAllRanges();
+
+      // When: the mobile long-press timer selects a word without creating a
+      // browser-native Selection.
+      act(() => {
+        fireEvent.touchStart(host, { touches: [{ clientX: 80, clientY: 42 }] });
+        vi.advanceTimersByTime(450);
+      });
+
+      // Then: linked consumers still receive the complete active range needed
+      // by an external popover's confirm action.
+      const activeUpdate = onChange.mock.calls
+        .map((call) => call[0] as LinkedSelectionData)
+        .find((data) => data.activeRange !== null);
+      expect(document.getSelection()?.toString()).toBe('');
+      expect(activeUpdate?.activeRange).toMatchObject({
+        text: 'Deterministic',
+        start: { selectionId: 'page-a', offset: 0 },
+        end: { selectionId: 'page-a', offset: 13 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('selection.mobile-active-selection.tap-inside-container-clears', () => {
     // Given: coarse pointer device with an active selection shown inside the component.
     mockGeometry();
