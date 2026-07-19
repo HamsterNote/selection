@@ -1508,8 +1508,6 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     if (!linkedContext || !hasSelection || !linkedRange) return;
     if (linkedRange.start.selectionId !== linkedContext.selectionId) return;
     if (linkedActiveRangeEqual(linkedContext.data.activeRange, linkedRange)) return;
-    const native = window.getSelection();
-    if (!native || native.isCollapsed || !native.toString().trim()) return;
     onLinkedDataChange?.({
       ...linkedContext.data,
       activeRange: linkedRange,
