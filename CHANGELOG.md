@@ -5,26 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-07-19
+
+### 修复
+
+- 联动模式下无原生选区时发布激活范围的问题
+
+### 新增
+
+- `overlayRectType` 的测试覆盖 (`Selection.overlayRectType.test.tsx`)
+
 ## [0.1.0] - 2026-07-12
 
-### Added
+### 新增
 
-- Rect tool mode with cross-tool selection compatibility
-- New test suites: `demo.app.test.tsx`, expanded `Selection.rect.test.tsx`
+- 矩形工具模式，支持跨工具选区兼容
+- 新测试套件：`demo.app.test.tsx`、扩展的 `Selection.rect.test.tsx`
 
-### Changed
+### 变更
 
-- Refactored `Selection.tsx` core rendering and interaction logic (+1031/-531 lines)
-- Updated `styleUtils.ts` and `useTextSelection.ts` for rect tool support
-- Expanded test coverage across all selection modules
+- 重构 `Selection.tsx` 核心渲染和交互逻辑 (+1031/-531 行)
+- 更新 `styleUtils.ts` 和 `useTextSelection.ts` 以支持矩形工具
+- 扩展所有选区模块的测试覆盖
 
-### Fixed
+### 修复
 
-- Rect tool handle rendering and linked-mode cross-container guard
-- Mobile selection: token-based click skip, multi-finger guard, blank-click clear
-- Selection overlay recomputation on scroll
-- Log key duplicates in demo App
-- CI configuration: added test step, ignore `.omo/`, alias package for vitest
+- 矩形工具手柄渲染和联动模式跨容器守卫
+- 移动端选区：基于令牌的点击跳过、多指守卫、空白点击清除
+- 滚动时选区覆盖层重新计算
+- 演示应用中日志键重复
+- CI 配置：添加测试步骤、忽略 `.omo/`、为 vitest 设置包别名
 
 ## [0.0.2-beta.1] - 2026-07-02
 
