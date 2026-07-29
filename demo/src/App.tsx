@@ -339,6 +339,13 @@ export default function App() {
     if (customHandleMode === 'default') return undefined;
     return (props: HandleRenderProps) => {
       if (customHandleMode === 'hidden') return null;
+      // T2 后文本手柄 style 不再携带 background/borderColor，颜色改经
+      // --hsn-handle-color CSS 变量传递；rect 手柄仍走旧 background/borderColor
+      // 路径，故两处回退必须保留（strict TS 下用交叉类型而非 as Record）。
+      const hsnStyle = props.style as
+        | (React.CSSProperties & { '--hsn-handle-color'?: string })
+        | undefined;
+      const hsnColor = hsnStyle?.['--hsn-handle-color'];
       return (
         <button
           type="button"
@@ -350,8 +357,8 @@ export default function App() {
             borderRadius: 2,
             width: 12,
             height: 12,
-            border: `2px solid ${props.style.borderColor ?? '#fff'}`,
-            background: props.style.background ?? '#ff4fa3',
+            border: `2px solid ${hsnColor ?? hsnStyle?.borderColor ?? '#ffffff'}`,
+            background: hsnColor ?? hsnStyle?.background ?? '#ff4fa3',
             cursor: 'grab',
             transform: props.isDragging ? 'scale(1.3)' : 'scale(1)',
             transition: 'transform 0.1s ease',
@@ -540,7 +547,11 @@ export default function App() {
                 onChange={() => setCustomHandleMode(mode)}
                 style={{ marginRight: 4 }}
               />
-              {mode === 'default' ? '内置圆形' : mode === 'square' ? '自定义方形' : '隐藏(null)'}
+              {mode === 'default'
+                ? '内置移动端样式'
+                : mode === 'square'
+                  ? '自定义方形'
+                  : '隐藏(null)'}
             </label>
           ))}
         </div>

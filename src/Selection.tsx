@@ -2228,12 +2228,24 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     top: number,
     overlayRectType: OverlayRectType,
     ownerStyle: CSSProperties | undefined,
+    // 第 5 参仅用于颜色通道决策：文本手柄与 rect 手柄消费不同的视觉字段
+    target: 'text' | 'rect',
   ): React.CSSProperties => {
-    const s: React.CSSProperties = {
+    // 交叉类型声明，使 strict TS 下可以安全写入自定义 CSS 变量
+    const s: React.CSSProperties & { '--hsn-handle-color'?: string } = {
       left: buildPositionStyleValue(left, overlayRectType),
       top: buildPositionStyleValue(top, overlayRectType),
     };
     const visual = deriveHandleVisualStyle(ownerStyle, legacyHandleFallback);
+    if (target === 'text') {
+      // 文本手柄（竖线+圆圈）：只消费 background 推导色，经 CSS 变量传给子元素；
+      // 不消费 borderColor/borderWidth，也不写宽高（宽高由默认 button 内联热区提供）
+      if (visual.background !== undefined) {
+        s['--hsn-handle-color'] = visual.background;
+      }
+      return s;
+    }
+    // rect 手柄（圆形）：行为与历史完全一致，完整消费背景与边框
     if (visual.background !== undefined) s.background = visual.background;
     if (visual.borderColor !== undefined) {
       s.borderColor = visual.borderColor;
@@ -2260,6 +2272,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     positionUnit: OverlayRectType = legacyOverlayRectType,
     target: 'text' | 'rect' = 'text',
     rectId: string | null = null,
+    // 末尾追加的可选形参：文本手柄所在行的行高，用于内置默认热区高度计算
+    lineHeight?: number,
   ) => {
     const handleProps: HandleRenderProps = {
       type,
@@ -2274,19 +2288,26 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       ariaLabel,
       className,
       style,
+      lineHeight,
     };
     if (renderHandle) {
       const rendered = renderHandle(handleProps);
       if (rendered === null) return null;
       return rendered;
     }
+    // 以下仅内置默认 <button> 分支：文本手柄计算透明热区尺寸（宽 28px，高 = 行高 + 12px）。
+    // 行高缺失或非法（如持久化脏数据 height: 0）时兜底 12；rect 分支不消费这些值。
+    const effLineHeight = typeof lineHeight === 'number' && lineHeight > 0 ? lineHeight : 12;
+    const width = '28px';
+    const height =
+      positionUnit === 'percent' ? `calc(${effLineHeight}% + 12px)` : `${effLineHeight + 12}px`;
     return (
       <button
         type="button"
-        className={className}
+        className={target === 'text' ? `${className} hsn-selection-handle-text` : className}
         tabIndex={-1}
         aria-label={ariaLabel}
-        style={style}
+        style={target === 'text' ? { ...handleProps.style, width, height } : style}
         data-rect-id={rectId ?? ''}
         data-range-id={rangeId ?? ''}
         ref={(el) => {
@@ -2305,7 +2326,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         }}
         onMouseDown={onDragStart}
         onPointerDown={handleProps.onPointerDown}
-      />
+      >
+        {target === 'text' && (
+          <>
+            <span className="hsn-selection-handle__line" aria-hidden="true" />
+            <span className="hsn-selection-handle__circle" aria-hidden="true" />
+          </>
+        )}
+      </button>
     );
   };
 
@@ -2580,7 +2608,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       )}
 
       {/*
-        拖拽手柄：活跃选区的首尾各一个粉色圆形。
+        拖拽手柄：活跃选区的首尾各一个。
+        文本手柄为移动端友好的「竖线 + 圆圈」结构（透明热区，内置默认 button）；
+        rect 手柄为圆形 button，视觉与历史一致。
         起点手柄钉在第一行矩形左侧中央，终点手柄钉在最后一行矩形右侧中央。
         拖动时通过 caretInfoFromPoint 反查 caret 偏移，更新原生选区；
         selectionchange → hook 重新计算 rects → 手柄位置基于新 rects 自然跟随。
@@ -2625,6 +2655,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   displayStart.y,
                   activeRectOverlayRectType,
                   activeSelectionStyle,
+                  'rect',
                 ),
                 activeRectOverlayRectType,
                 'rect',
@@ -2644,6 +2675,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   displayEnd.y,
                   activeRectOverlayRectType,
                   activeSelectionStyle,
+                  'rect',
                 ),
                 activeRectOverlayRectType,
                 'rect',
@@ -2704,10 +2736,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     first.y + first.height / 2,
                     displayActiveOverlayRectType,
                     activeSelectionStyle,
+                    'text',
                   ),
                   displayActiveOverlayRectType,
                   'text',
                   null,
+                  first.height,
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -2724,10 +2758,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     last.y + last.height / 2,
                     displayActiveOverlayRectType,
                     activeSelectionStyle,
+                    'text',
                   ),
                   displayActiveOverlayRectType,
                   'text',
                   null,
+                  last.height,
                 )}
             </>
           );
@@ -2777,6 +2813,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     persistedSelectionRect.start.y,
                     entryType,
                     persistedHandleStyle,
+                    'rect',
                   ),
                   entryType,
                   'rect',
@@ -2799,6 +2836,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     persistedSelectionRect.end.y,
                     entryType,
                     persistedHandleStyle,
+                    'rect',
                   ),
                   entryType,
                   'rect',
@@ -2851,10 +2889,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     first.y + first.height / 2,
                     entry.overlayRectType,
                     persistedHandleStyle,
+                    'text',
                   ),
                   entry.overlayRectType,
                   'text',
                   null,
+                  first.height,
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -2871,10 +2911,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     last.y + last.height / 2,
                     entry.overlayRectType,
                     persistedHandleStyle,
+                    'text',
                   ),
                   entry.overlayRectType,
                   'text',
                   null,
+                  last.height,
                 )}
             </>
           );

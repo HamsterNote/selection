@@ -15,7 +15,11 @@ import { createRef } from 'react';
 import { flushSync } from 'react-dom';
 import type { CSSProperties } from 'react';
 import { Selection } from './Selection';
-import type { LinkedSelectionData, SelectionRange, SelectionRef } from './types';
+import type { LinkedSelectionData, SelectionRange, SelectionRect, SelectionRef } from './types';
+
+// 交叉类型声明：strict TS 下可读自定义 CSS 变量
+// （禁用 CSSProperties & Record<string, unknown>，strict 下不可赋值）
+type HandleStyle = CSSProperties & { '--hsn-handle-color'?: string };
 
 // ---------------------------------------------------------------------------
 // 固定测试夹具（与 Selection.overlayRectType.test.tsx 保持一致）
@@ -354,13 +358,13 @@ describe('Selection style persistence', () => {
     // Given
     mockGeometry();
     const ref = createRef<SelectionRef>();
-    const capturedHandles: Array<{ owner: string; rangeId: string | null; style: CSSProperties }> =
+    const capturedHandles: Array<{ owner: string; rangeId: string | null; style: HandleStyle }> =
       [];
     const renderHandle = vi.fn(
       (props: {
         owner: 'active-selection' | 'persisted-range';
         rangeId: string | null;
-        style: CSSProperties;
+        style: HandleStyle;
       }) => {
         capturedHandles.push({ owner: props.owner, rangeId: props.rangeId, style: props.style });
         return <button type="button" data-testid="custom-handle" />;
@@ -394,10 +398,11 @@ describe('Selection style persistence', () => {
     // When: 激活选区
     activateSelection(container);
 
-    // Then: 活跃手柄应使用 selectionStyle 颜色
+    // Then: 活跃手柄颜色经 CSS 变量下发（决策6：文本手柄根元素不再消费 background）
     const activeHandles = capturedHandles.filter((h) => h.owner === 'active-selection');
     expect(activeHandles.length).toBeGreaterThan(0);
-    expect(activeHandles[0]?.style.background).toBe('rgba(244,114,182,0.45)');
+    expect(activeHandles[0]?.style['--hsn-handle-color']).toBe('rgba(244,114,182,0.45)');
+    expect(activeHandles[0]?.style.background).toBeUndefined();
 
     // When: 确认高亮
     act(() => {
@@ -424,13 +429,17 @@ describe('Selection style persistence', () => {
       </Selection>,
     );
 
-    // Then: 已确认 range 的手柄应使用 markerStyle 颜色
+    // Then: 已确认 range 的手柄颜色经 CSS 变量下发；完整锁定决策6（不消费 background/border*）
     const persistedHandles = capturedHandles.filter(
       (h) => h.owner === 'persisted-range' && h.rangeId !== null,
     );
     expect(persistedHandles.length).toBeGreaterThan(0);
-    expect(persistedHandles[0]?.style.background).toBe('rgba(64,156,255,0.25)');
-    expect(persistedHandles[0]?.style.borderColor).toBe('#1c7ed6');
+    expect(persistedHandles[0]?.style['--hsn-handle-color']).toBe('rgba(64,156,255,0.25)');
+    expect(persistedHandles[0]?.style.background).toBeUndefined();
+    // 文本手柄不再消费 borderColor（决策6）；markerStyle.borderColor 仍作用于 svg rect 描边，见 backcompat 用例（:470）
+    expect(persistedHandles[0]?.style.borderColor).toBeUndefined();
+    expect(persistedHandles[0]?.style.borderWidth).toBeUndefined();
+    expect(persistedHandles[0]?.style.borderStyle).toBeUndefined();
     expect(selectedRangeId).toBe(range.id);
   });
 
@@ -535,27 +544,37 @@ describe('Selection style persistence', () => {
 
   it('handles.preserve-string-border-width', () => {
     // Given: 用户传入合法 CSS 字符串 borderWidth。
+    // 决策6后文本手柄不再消费 borderWidth，本用例迁移为 rect 路径继续锁定字符串透传。
     mockGeometry();
-    const capturedHandles: Array<{ owner: string; rangeId: string | null; style: CSSProperties }> =
-      [];
+    const capturedHandles: Array<{
+      owner: string;
+      rangeId: string | null;
+      target: 'text' | 'rect';
+      style: CSSProperties;
+    }> = [];
     const renderHandle = vi.fn(
       (props: {
         owner: 'active-selection' | 'persisted-range';
         rangeId: string | null;
+        target: 'text' | 'rect';
         style: CSSProperties;
       }) => {
-        capturedHandles.push({ owner: props.owner, rangeId: props.rangeId, style: props.style });
+        capturedHandles.push({
+          owner: props.owner,
+          rangeId: props.rangeId,
+          target: props.target,
+          style: props.style,
+        });
         return <button type="button" data-testid="custom-handle" />;
       },
     );
-    const range: SelectionRange = {
-      id: 'styled',
-      text: 'Deterministic',
-      start: 0,
-      end: 12,
+    const rect: SelectionRect = {
+      id: 'styled-rect',
       createdAt: 1,
       overlayRectType: 'px',
-      rects: [{ x: 40, y: 30, width: 80, height: 24 }],
+      start: { x: 50, y: 50 },
+      end: { x: 150, y: 150 },
+      rect: { x: 50, y: 50, width: 100, height: 100 },
       markerStyle: {
         backgroundColor: 'rgba(64,156,255,0.25)',
         borderColor: '#1c7ed6',
@@ -566,8 +585,9 @@ describe('Selection style persistence', () => {
     // When
     render(
       <Selection
-        ranges={[range]}
-        selectedRangeId={range.id}
+        ranges={[]}
+        rects={[rect]}
+        selectedRectId={rect.id}
         overlayRectType="px"
         renderHandle={renderHandle}
       >
@@ -575,10 +595,11 @@ describe('Selection style persistence', () => {
       </Selection>,
     );
 
-    // Then: 字符串 borderWidth 原样传给手柄，不追加 px。
+    // Then: 字符串 borderWidth 原样传给 rect 手柄，不追加 px。
     const persistedHandle = capturedHandles.find(
-      (h) => h.owner === 'persisted-range' && h.rangeId === range.id,
+      (h) => h.owner === 'persisted-range' && h.rangeId === rect.id,
     );
+    expect(persistedHandle?.target).toBe('rect');
     expect(persistedHandle?.style.borderWidth).toBe('0.125rem');
   });
 
