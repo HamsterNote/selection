@@ -280,6 +280,13 @@ export interface HandleRenderProps {
   position: HandlePosition;
   /** 当前 position 的单位：'px' 表示像素，'percent' 表示 0-100 百分比 */
   positionUnit: 'px' | 'percent';
+  /**
+   * 文本手柄所在行的 overlay rect 高度（行高）。
+   * 单位随 `positionUnit`：'px' 时为像素，'percent' 时为 0-100 百分比。
+   * 仅 `target === 'text'` 的手柄必传；rect 手柄恒为 `undefined`。
+   * 外部自定义渲染可用它复刻与行等高的竖线。
+   */
+  lineHeight?: number;
   /** 当前手柄是否正在被拖拽 */
   isDragging: boolean;
   /**
@@ -290,12 +297,21 @@ export interface HandleRenderProps {
   onPointerDown: (event: PointerEvent<HTMLElement>) => void;
   /** 推荐的无障碍标签 */
   ariaLabel: string;
-  /** 推荐的 className（兼容默认样式表）；完全自定义时可忽略 */
+  /**
+   * 推荐的 className（兼容默认样式表）；完全自定义时可忽略。
+   * 自 0.2.0 起，文本手柄基类不再携带旧圆点的 12×12 尺寸、2px 白边、圆角、背景和阴影。
+   * 追加 `hsn-selection-handle-dot` 只能恢复**库内置、未带 owner 边框覆盖时**的旧默认圆点视觉；
+   * 它不能恢复任意外部 renderer 的 owner-derived border 或旧 content-box 像素结果
+   * （**严禁**追加 `-rect`——`Selection.tsx:1796-1823` 以该类路由到 rect 拖拽）。
+   */
   className: string;
   /**
    * 推荐的内联样式（含绝对定位 + 可选默认颜色）；外部组件应合并到根元素。
-   * - 当 overlay rect type 为 'px' 时，`left`/`top` 为数值型像素值；
-   * - 当 overlay rect type 为 'percent' 时，`left`/`top` 为百分比字符串（如 `'50%'`）。
+   * - `position` 始终是数值；`style.left/top` 在 px 模式为 `<number>px` 字符串，
+   *   percent 模式为 `<number>%` 字符串。
+   * - 自 0.2.0 起，text renderer 不再收到 `style.background`、`borderColor`、
+   *   `borderWidth`、`borderStyle`，颜色必须改读 `style['--hsn-handle-color']`；
+   *   owner-derived border 不再可从 render props 恢复，须由 renderer 自行提供。
    */
   style: CSSProperties;
 }
@@ -528,7 +544,13 @@ export interface SelectionProps {
    *
    * 返回的 React 节点应在其 `onPointerDown` 中调用 `props.onPointerDown`
    * 以启用库内置拖拽逻辑。返回 `null` 表示隐藏该手柄。
-   * 不传时使用内置圆形 `<button>` 手柄。
+   * 不传时文本手柄使用内置移动端风格（竖线+圆圈）`<button>`，rect 手柄仍为圆形。
+   *
+   * render props 契约：`position` 始终是数值；`style.left/top` 在 px 模式为
+   * `<number>px` 字符串、percent 模式为 `<number>%` 字符串。自 0.2.0 起
+   * text renderer 不再收到 `style.background`、`borderColor`、`borderWidth`、
+   * `borderStyle`，颜色必须改读 `style['--hsn-handle-color']`；owner-derived
+   * border 不再可从 render props 恢复，须由 renderer 自行提供。
    */
   renderHandle?: (props: HandleRenderProps) => ReactNode;
   /**
