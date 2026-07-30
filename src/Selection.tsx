@@ -1648,7 +1648,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 紧接着 container 的 click 通过 hit-test 再把新 rect 设为选中，最终状态正确。
   // touch / pen 直接跳过，避免双指缩放等触摸手势误触发取消选中。
   useEffect(() => {
-    if (!currentSelectedRangeId && !selectedRectId && !activeRect) return;
+    if (!currentSelectedRangeId && !selectedRectId && !activeRect && !hasActiveTextSelection)
+      return;
     const handleDocPointerDown = (e: PointerEvent) => {
       if (e.pointerType && e.pointerType !== 'mouse') {
         skipClickRef.current = createSkipClickToken(null);
@@ -1657,16 +1658,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       if (dragHandleRef.current || dragPersistedIdRef.current) return;
       if (e.target instanceof Element && e.target.closest('.hsn-selection-handle')) return;
       if (e.target instanceof Element && e.target.closest('.hsn-selection-popover')) return;
-      // 外部工具栏/表单控件本身是一个明确操作（如确认矩形、切换工具），
-      // 不应被当作“点击空白处取消选中”，否则 pointerdown 会抢在 button click 前清掉 active rect。
-      if (
+      // 外部控件可能通过 Selection ref 确认当前草稿，因此只延后草稿取消；
+      // 已确认的文本/矩形选中项仍应响应页面任意位置的 pointerdown。
+      const targetsExternalAction =
         e.target instanceof Element &&
         e.target.closest(
           'button, input, select, textarea, label, a[href], [role="button"], [role="menuitem"], [contenteditable="true"]',
-        )
-      ) {
-        return;
-      }
+        ) !== null;
       const popoverEl = popoverRef.current;
       if (popoverEl && e.target instanceof Node && popoverEl.contains(e.target)) return;
       const selectionPopoverEl = selectionPopoverRef.current;
@@ -1677,7 +1675,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       if (container && e.target instanceof Node && container.contains(e.target)) return;
 
       if (activeRectRef.current) {
+        if (targetsExternalAction) return;
         clearActiveRect();
+        return;
+      }
+
+      if (hasSelectionRef.current) {
+        if (targetsExternalAction) return;
+        clearActiveSelectionRef.current();
         return;
       }
 
@@ -1688,11 +1693,18 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         onSelectRectRef.current?.(null);
       }
     };
-    document.addEventListener('pointerdown', handleDocPointerDown);
+    document.addEventListener('pointerdown', handleDocPointerDown, true);
     return () => {
-      document.removeEventListener('pointerdown', handleDocPointerDown);
+      document.removeEventListener('pointerdown', handleDocPointerDown, true);
     };
-  }, [activeRect, clearActiveRect, currentSelectedRangeId, selectRange, selectedRectId]);
+  }, [
+    activeRect,
+    clearActiveRect,
+    currentSelectedRangeId,
+    hasActiveTextSelection,
+    selectRange,
+    selectedRectId,
+  ]);
 
   const beginHandleDrag = useCallback(
     ({ type: which, rangeId, handleElement, pointer }: TextHandleDragStart) => {
