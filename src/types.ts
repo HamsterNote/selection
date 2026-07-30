@@ -539,6 +539,8 @@ export interface SelectionProps {
    * @deprecated 请使用 `selectionStyle`（CSSProperties）。
    */
   newSelectionOptions?: NewSelectionOptions;
+  /** 是否启用文本选区端点放大镜。默认 `false`，仅在拖动文本手柄时显示。 */
+  showSelectionMagnifier?: boolean;
   /**
    * 自定义拖拽手柄渲染函数。
    *

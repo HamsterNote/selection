@@ -96,6 +96,7 @@ export default function App() {
   );
   const [overlayRectType, setOverlayRectType] = useState<OverlayRectType>('px');
   const [tool, setTool] = useState<SelectionTool>('text');
+  const [showSelectionMagnifier, setShowSelectionMagnifier] = useState(false);
 
   const [rects, setRects] = useState<SelectionRect[]>([]);
   const [selectedRectId, setSelectedRectId] = useState<string | null>(null);
@@ -532,6 +533,27 @@ export default function App() {
           </span>
         </label>
 
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 8,
+            fontSize: 13,
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showSelectionMagnifier}
+            onChange={(event) => setShowSelectionMagnifier(event.target.checked)}
+          />
+          <span>
+            <strong>showSelectionMagnifier</strong>
+            <span style={{ color: '#888' }}> — 拖动文本手柄时显示端点放大镜（默认关闭）</span>
+          </span>
+        </label>
+
         {/* Feature 1：手柄渲染模式 */}
         <div style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 13, marginRight: 8 }}>
@@ -732,6 +754,7 @@ export default function App() {
             popover={linkedPopover}
             selectionPopover={makeLinkedSelectionPopover(PAGE_A)}
             overlayRectType={overlayRectType}
+            showSelectionMagnifier={showSelectionMagnifier}
           >
             {INTRO_A}
             {' 它的核心思想是'}
@@ -826,6 +849,7 @@ export default function App() {
             popover={linkedPopover}
             selectionPopover={makeLinkedSelectionPopover(PAGE_B)}
             overlayRectType={overlayRectType}
+            showSelectionMagnifier={showSelectionMagnifier}
           >
             {INTRO_B}
             {' 与其它框架不同的是，它通过'}
@@ -1038,6 +1062,7 @@ export default function App() {
                 </div>
               }
               overlayRectType={overlayRectType}
+              showSelectionMagnifier={showSelectionMagnifier}
             >
               {LEGACY_TEXT}
               <br />

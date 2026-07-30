@@ -27,6 +27,11 @@ import {
   resolveEndpoint,
   syncSelectionOrder,
 } from './linkedRegistry';
+import {
+  SelectionMagnifier,
+  type SelectionMagnifierHandle,
+  type SelectionMagnifierTarget,
+} from './SelectionMagnifier';
 import './style.css';
 import {
   buildPercentRectStyle,
@@ -113,6 +118,13 @@ type LinkedModeContext = {
 };
 
 type HandleDragStartEvent = React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>;
+
+type TextHandleDragStart = {
+  readonly type: 'start' | 'end';
+  readonly rangeId: string | undefined;
+  readonly handleElement: HTMLElement;
+  readonly pointer: ClickPoint;
+};
 
 /** 生成唯一 ID（毫秒时间戳 + 6 位随机串） */
 function generateId(): string {
@@ -441,6 +453,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     popover,
     selectionPopover,
     newSelectionOptions,
+    showSelectionMagnifier = false,
     renderHandle,
     markerColors,
     markerStyle,
@@ -530,6 +543,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 被拖动手柄的 DOM 引用：拖动开始时设为手柄元素，用于 onUp 恢复 pointerEvents。
   // 避免依赖 React state → CSS class 链（重渲染延迟导致首帧 pointermove 命中手柄）。
   const dragHandleElRef = useRef<HTMLElement | null>(null);
+  const [magnifierTarget, setMagnifierTarget] = useState<SelectionMagnifierTarget | null>(null);
+  const magnifierRef = useRef<SelectionMagnifierHandle>(null);
   // 拖动/拖选结束后记录一个短期 click 跳过令牌，只跳过紧随其后、同坐标的合成 click。
   // 跨区域拖选可能不会在结束容器派发 click；令牌不能残留到用户下一次空白点击。
   const skipClickRef = useRef<SkipClickToken | null>(null);
@@ -1680,7 +1695,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   }, [activeRect, clearActiveRect, currentSelectedRangeId, selectRange, selectedRectId]);
 
   const beginHandleDrag = useCallback(
-    (which: 'start' | 'end', rangeId: string | undefined, handleElement: HTMLElement) => {
+    ({ type: which, rangeId, handleElement, pointer }: TextHandleDragStart) => {
       const nextPersistedId = rangeId ?? null;
       if (dragHandleRef.current === which && dragPersistedIdRef.current === nextPersistedId) return;
 
@@ -1691,6 +1706,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       dragHandleElRef.current = handleElement;
       dragHandleRef.current = which;
       dragPersistedIdRef.current = nextPersistedId;
+      const container = containerRef.current;
+      if (showSelectionMagnifier && container) {
+        setMagnifierTarget({
+          point: { x: pointer.clientX, y: pointer.clientY },
+          source: container,
+        });
+      }
 
       // 缓存拖动锚点：不动的那个边界。拖 start 锚点=end，拖 end 锚点=start。
       // 活跃选区从 ref 读取当前 endIndex/startIndex；高亮 range 从 ranges 读取当前 range 的 end/start。
@@ -1736,7 +1758,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       setDragHandle(which);
       setDragPersistedId(nextPersistedId);
     },
-    [linkedRange, setLinkedDraggingRange],
+    [linkedRange, setLinkedDraggingRange, showSelectionMagnifier],
   );
 
   /**
@@ -1750,7 +1772,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     (which: 'start' | 'end', rangeId?: string) => (e: HandleDragStartEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      beginHandleDrag(which, rangeId, e.currentTarget);
+      beginHandleDrag({
+        type: which,
+        rangeId,
+        handleElement: e.currentTarget,
+        pointer: { clientX: e.clientX, clientY: e.clientY },
+      });
     },
     [beginHandleDrag],
   );
@@ -1819,7 +1846,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         const rangeId = !hasSelectionRef.current
           ? (currentSelectedRangeIdRef.current ?? undefined)
           : undefined;
-        beginHandleDrag(type, rangeId, handle);
+        beginHandleDrag({
+          type,
+          rangeId,
+          handleElement: handle,
+          pointer: { clientX: event.clientX, clientY: event.clientY },
+        });
       }
     };
 
@@ -1920,8 +1952,37 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         }
       }
 
+      const pointerPoint = { x: e.clientX, y: e.clientY };
+      if (showSelectionMagnifier) magnifierRef.current?.moveLens(pointerPoint);
       const info = caretInfoFromPoint(e.clientX, e.clientY);
       if (!info) return;
+
+      const caretRange = document.createRange();
+      try {
+        caretRange.setStart(info.node, info.offset);
+        caretRange.collapse(true);
+        const caretRect = caretRange.getBoundingClientRect();
+        if (caretRect.height > 0) {
+          const caretElement = info.node instanceof Element ? info.node : info.node.parentElement;
+          const caretContent = caretElement?.closest('.hsn-selection-content');
+          if (showSelectionMagnifier && caretContent instanceof HTMLDivElement) {
+            const caretContainer = caretContent.closest('.hsn-selection-container');
+            const nextSource =
+              caretContainer instanceof HTMLDivElement ? caretContainer : caretContent;
+            const nextTarget: SelectionMagnifierTarget = {
+              point: pointerPoint,
+              source: nextSource,
+            };
+            if (magnifierRef.current?.source !== nextSource) {
+              setMagnifierTarget(nextTarget);
+            } else {
+              magnifierRef.current.moveLens(pointerPoint);
+            }
+          }
+        }
+      } catch {
+        return;
+      }
 
       const linkedMovingEndpoint = linkedDataRef.current
         ? resolveEndpoint(info.node, info.offset)
@@ -2052,21 +2113,24 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         sel.addRange(newRange);
       }
     };
-    const onUp = (e: PointerEvent) => {
+    const onUp = (e: PointerEvent | FocusEvent) => {
       if (!dragHandleRef.current && !dragPersistedIdRef.current) return;
       const persistedId = dragPersistedIdRef.current;
       if (dragHandleElRef.current) {
         dragHandleElRef.current.style.pointerEvents = '';
         dragHandleElRef.current = null;
       }
-      skipClickRef.current = createSkipClickToken({
-        clientX: e.clientX,
-        clientY: e.clientY,
-      });
+      if ('clientX' in e && 'clientY' in e) {
+        skipClickRef.current = createSkipClickToken({
+          clientX: e.clientX,
+          clientY: e.clientY,
+        });
+      }
       dragHandleRef.current = null;
       dragPersistedIdRef.current = null;
       dragLinkedAnchorRef.current = null;
       dragAnchorRef.current = -1;
+      setMagnifierTarget(null);
       setDragHandle(null);
       setDragPersistedId(null);
       if (persistedId) {
@@ -2084,9 +2148,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+    window.addEventListener('blur', onUp);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('blur', onUp);
     };
   }, [
     legacyOverlayRectType,
@@ -2098,6 +2166,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     propRects,
     onUpdateRect,
     activeRect,
+    showSelectionMagnifier,
   ]);
 
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
@@ -2318,7 +2387,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             if (target === 'rect') {
               beginRectHandleDrag(type, rectId ?? undefined, el);
             } else {
-              beginHandleDrag(type, rangeId ?? undefined, el);
+              beginHandleDrag({
+                type,
+                rangeId: rangeId ?? undefined,
+                handleElement: el,
+                pointer: { clientX: event.clientX, clientY: event.clientY },
+              });
             }
           };
           el.onpointerdown = nativeDragStart;
@@ -2565,6 +2639,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       <div ref={contentRef} className="hsn-selection-content">
         {children}
       </div>
+
+      {showSelectionMagnifier && magnifierTarget && (
+        <SelectionMagnifier
+          ref={magnifierRef}
+          point={magnifierTarget.point}
+          source={magnifierTarget.source}
+        />
+      )}
 
       {/*
         Popover 层：渲染在 children 之上、与 overlay 同层级（更高 z-index 保证浮在最上）。

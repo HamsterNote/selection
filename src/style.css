@@ -287,3 +287,42 @@
 .hsn-selection-handle--dragging {
   pointer-events: none;
 }
+
+.hsn-selection-magnifier {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  width: 120px;
+  height: 120px;
+  overflow: hidden;
+  pointer-events: none;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow:
+    0 8px 24px rgba(15, 23, 42, 0.24),
+    0 2px 8px rgba(15, 23, 42, 0.2);
+  will-change: transform;
+}
+
+.hsn-selection-magnifier__snapshot {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.hsn-selection-magnifier__point {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #2563eb;
+  transform: translate(-50%, -50%);
+}
