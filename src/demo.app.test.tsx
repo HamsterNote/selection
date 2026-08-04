@@ -68,6 +68,19 @@ function selectText(container: HTMLElement): void {
   });
 }
 
+function dragRect(container: HTMLElement): void {
+  const dispatchPointer = (target: EventTarget, type: string, clientX: number, clientY: number) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    target.dispatchEvent(event);
+  };
+  act(() => {
+    dispatchPointer(container, 'pointerdown', 40, 30);
+    dispatchPointer(document, 'pointermove', 120, 90);
+    dispatchPointer(document, 'pointerup', 120, 90);
+  });
+}
+
 describe('Demo app selection mutual exclusion', () => {
   beforeEach(() => {
     mockGeometry();
@@ -113,5 +126,49 @@ describe('Demo app selection mutual exclusion', () => {
     fireEvent.click(legacyItemButton);
     expect(within(legacyList).getByText('已选中')).toBeInTheDocument();
     expect(within(linkedList).queryByText('已选中')).not.toBeInTheDocument();
+  });
+
+  it('clicking a persisted linked highlight reselects it after outside deselection', () => {
+    // Given: a linked text highlight remains stored after an outside pointer deselects it.
+    const { container } = render(<App />);
+    const linkedContainer = selectionContainer(container, 0);
+    selectText(linkedContainer);
+    fireEvent.click(screen.getByRole('button', { name: '高亮选中（page-a）' }));
+    const linkedHeading = screen.getByRole('heading', { name: /联动高亮（1）/i });
+    const linkedList = linkedHeading.nextElementSibling;
+    if (!(linkedList instanceof HTMLElement)) throw new TypeError('Expected linked highlight list');
+    fireEvent.pointerDown(document.body, { pointerType: 'mouse', clientX: 300, clientY: 200 });
+    expect(within(linkedList).queryByText('已选中')).not.toBeInTheDocument();
+    document.getSelection()?.removeAllRanges();
+
+    // When: the user clicks the persisted overlay geometry in the Selection container.
+    fireEvent.click(linkedContainer, { clientX: 50, clientY: 40 });
+
+    // Then: the linked item becomes selected again instead of being cleared by onSelectRect(null).
+    expect(within(linkedList).getByText('已选中')).toBeInTheDocument();
+  });
+
+  it('clicking a persisted rectangle reselects it after outside deselection', () => {
+    // Given: rect mode has one confirmed rectangle that was deselected outside the container.
+    const { container } = render(<App />);
+    fireEvent.click(screen.getByLabelText(/矩形框选 \(rect\)/i));
+    const linkedContainer = selectionContainer(container, 0);
+    dragRect(linkedContainer);
+    fireEvent.click(screen.getByRole('button', { name: '确认矩形' }));
+    const rectHeading = screen.getByRole('heading', { name: /Rect 高亮（1）/i });
+    const rectList = rectHeading.nextElementSibling;
+    if (!(rectList instanceof HTMLElement)) throw new TypeError('Expected rectangle list');
+    const rectItem = within(rectList)
+      .getByRole('button', { name: /type: px/u })
+      .closest('li');
+    if (!(rectItem instanceof HTMLElement)) throw new TypeError('Expected rectangle list item');
+    fireEvent.pointerDown(document.body, { pointerType: 'mouse', clientX: 300, clientY: 200 });
+    expect(rectItem).toHaveStyle({ background: '#fff', border: '1px solid #eee' });
+
+    // When: the user clicks inside the persisted rectangle geometry.
+    fireEvent.click(linkedContainer, { clientX: 60, clientY: 50 });
+
+    // Then: the rectangle becomes selected again instead of being cleared by selectRange(null).
+    expect(rectItem).toHaveStyle({ background: '#e3fafc', border: '1px solid #15aabf' });
   });
 });

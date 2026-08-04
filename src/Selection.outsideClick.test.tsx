@@ -47,6 +47,25 @@ function dispatchMousePointerDown(target: EventTarget): void {
   target.dispatchEvent(event);
 }
 
+function dispatchTouchPointerDown(
+  target: EventTarget,
+  isPrimary = true,
+  point = { clientX: 300, clientY: 200 },
+): void {
+  const event = new MouseEvent('pointerdown', {
+    bubbles: true,
+    cancelable: true,
+    clientX: point.clientX,
+    clientY: point.clientY,
+  });
+  Object.defineProperties(event, {
+    pointerId: { value: isPrimary ? 2 : 3 },
+    pointerType: { value: 'touch' },
+    isPrimary: { value: isPrimary },
+  });
+  target.dispatchEvent(event);
+}
+
 function selectText(container: HTMLElement): void {
   const textNode = container.querySelector('p')?.firstChild;
   if (!(textNode instanceof Text)) throw new TypeError('Expected paragraph text node');
@@ -135,5 +154,117 @@ describe('Selection page-level deselection', () => {
     // Then: the active selection and its actions are dismissed.
     expect(container.querySelector('.hsn-selection-popover')).not.toBeInTheDocument();
     expect(document.getSelection()?.isCollapsed).toBe(true);
+  });
+
+  it('clears a persisted selection when the page outside is touched', () => {
+    // Given: a persisted range is selected on a primary-touch device.
+    mockGeometry();
+    const onSelectRange = vi.fn();
+    render(
+      <Selection ranges={[selectedRange]} selectedRangeId="text-1" onSelectRange={onSelectRange}>
+        <p>Deterministic paragraph for outside touch.</p>
+      </Selection>,
+    );
+
+    // When: the primary finger touches document space outside Selection.
+    act(() => {
+      dispatchTouchPointerDown(document.body);
+    });
+
+    // Then: touch follows the same page-level deselection contract as mouse.
+    expect(onSelectRange).toHaveBeenCalledWith(null);
+  });
+
+  it('clears an active text selection when the page outside is touched', () => {
+    // Given: an unconfirmed custom text selection and its Popover are visible.
+    mockGeometry();
+    const { container } = render(
+      <Selection ranges={[]} selectionPopover={<button type="button">Highlight</button>}>
+        <p>Deterministic paragraph for outside touch.</p>
+      </Selection>,
+    );
+    selectText(selectionContainer(container));
+    expect(container.querySelector('.hsn-selection-popover')).toBeInTheDocument();
+
+    // When: the primary finger touches blank document space outside Selection.
+    act(() => {
+      dispatchTouchPointerDown(document.body);
+    });
+
+    // Then: the active custom selection is dismissed.
+    expect(container.querySelector('.hsn-selection-popover')).not.toBeInTheDocument();
+    expect(document.getSelection()?.isCollapsed).toBe(true);
+  });
+
+  it('preserves the active selection for Popover and secondary touches', () => {
+    // Given: an active custom selection exposes its Popover and handles.
+    mockGeometry();
+    const { container, getByRole } = render(
+      <Selection ranges={[]} selectionPopover={<button type="button">Highlight</button>}>
+        <p>Deterministic paragraph for touch exclusions.</p>
+      </Selection>,
+    );
+    selectText(selectionContainer(container));
+
+    // When: touch starts in the Popover or comes from a secondary finger outside Selection.
+    act(() => {
+      dispatchTouchPointerDown(getByRole('button', { name: 'Highlight' }));
+      dispatchTouchPointerDown(document.body, false);
+    });
+
+    // Then: these gestures do not dismiss the active selection.
+    expect(container.querySelector('.hsn-selection-popover')).toBeInTheDocument();
+    expect(container.querySelectorAll('.hsn-selection-handle')).toHaveLength(2);
+    expect(document.getSelection()?.isCollapsed).toBe(false);
+  });
+
+  it('preserves a persisted selection when its custom Handle is touched', () => {
+    // Given: a persisted range is selected and exposes custom drag handles.
+    mockGeometry();
+    const onSelectRange = vi.fn();
+    const { container } = render(
+      <Selection ranges={[selectedRange]} selectedRangeId="text-1" onSelectRange={onSelectRange}>
+        <p>Deterministic paragraph for handle touch.</p>
+      </Selection>,
+    );
+    const handle = container.querySelector('.hsn-selection-handle');
+    if (!(handle instanceof HTMLElement)) throw new TypeError('Expected selection handle');
+
+    // When: the primary finger starts a gesture on the custom Handle.
+    act(() => {
+      dispatchTouchPointerDown(handle);
+    });
+
+    // Then: document-level touch cancellation excludes Handle interaction.
+    expect(onSelectRange).not.toHaveBeenCalledWith(null);
+  });
+
+  it('does not swallow a highlight click after outside touch deselection', () => {
+    // Given: a primary outside touch clears a controlled persisted selection.
+    mockGeometry();
+    const onSelectRange = vi.fn();
+    const { container, rerender } = render(
+      <Selection ranges={[selectedRange]} selectedRangeId="text-1" onSelectRange={onSelectRange}>
+        <p>Deterministic paragraph for touch click scope.</p>
+      </Selection>,
+    );
+    act(() => {
+      dispatchTouchPointerDown(document.body, true, { clientX: 300, clientY: 200 });
+    });
+    expect(onSelectRange).toHaveBeenCalledWith(null);
+    rerender(
+      <Selection ranges={[selectedRange]} selectedRangeId={null} onSelectRange={onSelectRange}>
+        <p>Deterministic paragraph for touch click scope.</p>
+      </Selection>,
+    );
+    onSelectRange.mockClear();
+
+    // When: an immediate synthetic click lands on the highlight at a different point.
+    act(() => {
+      fireEvent.click(selectionContainer(container), { clientX: 50, clientY: 40 });
+    });
+
+    // Then: the unrelated outside touch token does not consume this valid range selection.
+    expect(onSelectRange).toHaveBeenCalledWith('text-1');
   });
 });

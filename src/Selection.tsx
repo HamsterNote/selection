@@ -51,6 +51,7 @@ import type {
   LinkedSelectionData,
   LinkedSelectionDragState,
   LinkedSelectionRange,
+  MousePosition,
   OverlayRect,
   OverlayRectType,
   PercentOverlayRect,
@@ -711,11 +712,11 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const onSelectionEndRef = useRef(onSelectionEnd);
   onSelectionEndRef.current = onSelectionEnd;
   // 移动端 touchend 后浏览器会合成 mousedown/mouseup/click 事件。
-  // 该 ref 标记「下一个合成 mousedown 不应触发 onSelectionStart」，用于：
+  // 该 ref 仅匹配同坐标且未过期的合成 mousedown，用于：
   // 1. 长按选词 —— 已在 timer 回调中触发过 start，合成 mousedown 不应重复触发；
   // 2. 点击取消选区 —— 只应清除选区，不应触发 start；
   // 3. 普通轻触 —— 移动端不通过 mousedown 表达「开始选择」，统一抑制。
-  const suppressNextMouseDownStartRef = useRef(false);
+  const suppressNextMouseDownStartRef = useRef<SkipClickToken | null>(null);
   // 桥接 ref：文档级取消选中监听需要读取最新矩形选中回调，但不应频繁重绑监听器。
   const selectedRectIdRef = useRef<string | null>(selectedRectId);
   selectedRectIdRef.current = selectedRectId;
@@ -1172,17 +1173,37 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       setActiveRect(null);
     };
 
+    const handlePointerCancel = (event: PointerEvent) => {
+      if (!rectDrawingStartRef.current) return;
+      if (
+        rectDrawingPointerIdRef.current !== event.pointerId &&
+        rectDrawingPointerIdRef.current !== null
+      ) {
+        return;
+      }
+      rectDrawingStartRef.current = null;
+      rectDrawingPointerIdRef.current = null;
+      setIsDrawingRect(false);
+      setIsSelectingText(false);
+      mouseSelectingTextRef.current = false;
+      setLinkedSelectingText(false);
+      setActiveRect(null);
+      container.releasePointerCapture?.(event.pointerId);
+    };
+
     container.addEventListener('selectstart', handleNativeSelectStart, true);
     container.addEventListener('dragstart', handleNativeSelectStart, true);
     container.addEventListener('pointerdown', handlePointerDown, true);
     document.addEventListener('pointermove', handlePointerMove);
     document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerCancel);
     return () => {
       container.removeEventListener('selectstart', handleNativeSelectStart, true);
       container.removeEventListener('dragstart', handleNativeSelectStart, true);
       container.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('pointermove', handlePointerMove);
       document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerCancel);
       rectDrawingStartRef.current = null;
       rectDrawingPointerIdRef.current = null;
     };
@@ -1217,8 +1238,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       // 移动端 touchend 合成的 mousedown：若已标记抑制，消费标记并退出。
       // 长按选词已在 timer 中触发 start；点击取消选区不应触发 start；
       // 普通轻触在移动端不通过 mousedown 表达「开始选择」。
-      if (suppressNextMouseDownStartRef.current) {
-        suppressNextMouseDownStartRef.current = false;
+      const suppressMouseDown = suppressNextMouseDownStartRef.current;
+      suppressNextMouseDownStartRef.current = null;
+      if (suppressMouseDown && skipClickTokenMatches(suppressMouseDown, e)) {
         return;
       }
 
@@ -1309,12 +1331,24 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       onSelectionEndRef.current?.({ x: e.clientX, y: e.clientY }, selection);
     };
 
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!mouseSelectingTextRef.current) return;
+      const target = e.target;
+      if (target instanceof Element && target.closest('.hsn-selection-container')) return;
+
+      // 绝对定位内容可能让视觉空白实际命中容器外层。此时浏览器会把原生选区
+      // 吸附到最近的文字（常见为容器首字符），所以保留上一次有效选区。
+      e.preventDefault();
+    };
+
     container.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mousemove', handleMouseMove);
     // mouseup 监听挂在 document 上：用户可能在容器内按下后拖出容器再松开，
     // 这种情况下 mouseup 不会冒泡到容器，所以要在 document 层捕获。
     document.addEventListener('mouseup', handleMouseUp);
     return () => {
       container.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isTextTool, onSelectRect, setLinkedSelectingText]);
@@ -1327,15 +1361,16 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   }, [hasSelection, setLinkedSelectingText]);
 
   // 触摸设备长按文字触发的原生 contextmenu（系统选区菜单/复制弹窗）需屏蔽。
-  // 仅在 pointerType === 'touch' 时 preventDefault，桌面右键菜单不受影响。
+  // iOS 可能派发没有 pointerType 的 MouseEvent，因此粗指针环境也要作为触摸菜单处理。
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const handleContextMenu = (e: MouseEvent) => {
-      // contextmenu 的 TS 类型是 MouseEvent，但触摸触发时浏览器实际派发的是 PointerEvent 子类，
-      // 其上携带 pointerType。用 in 守卫做类型窄化，避免 as any。
       if (!isTextTool) return;
-      if ('pointerType' in e && (e as PointerEvent).pointerType === 'touch') {
+      const comesFromTouch = 'pointerType' in e && e.pointerType === 'touch';
+      const usesCoarsePointer =
+        typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+      if (comesFromTouch || usesCoarsePointer) {
         e.preventDefault();
       }
     };
@@ -1345,7 +1380,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
   }, [isTextTool]);
 
-  // 触摸设备长按检测：代替原生长按选词（因 user-select:none 禁用了原生选区 UI）。
+  // 触摸设备长按检测：先在内容仍可选时命中文字，再临时禁选以阻止原生选区 UI。
+  // touchstart 保持被动，不取消滚动；定时器消费缓存的 Range，避免旧 WebKit 命中失败。
   // touchstart 后启动计时器，若在 LONG_PRESS_MS 内未发生超过 MOVE_THRESHOLD_PX 的位移，
   // 判定为长按并通过 selectWordAtPoint 计算单词 Range，再通过 setFromRange 注入 hook state。
   // 全程不创建原生 Selection，不触发 selectionchange，不出现原生水滴手柄/蓝色高亮。
@@ -1365,23 +1401,54 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     let timer: ReturnType<typeof setTimeout> | null = null;
     let startX = 0;
     let startY = 0;
+    let lastTouchPoint: MousePosition = { x: 0, y: 0 };
     let moved = false;
-    let longPressTriggered = false;
+    let selectionLifecycleOpen = false;
+    let pendingWordRange: Range | null = null;
+    let restoreNativeSelectionTimer: ReturnType<typeof setTimeout> | null = null;
     // 仅「单指无移动轻触」才允许取消活跃选区；双指缩放/单指拖动都应保留选区。
     let singleFingerTapCandidate = false;
     // 标记本次 touch 从 Popover/手柄内发起。
     // 若 true，touchend 不干预选区、不触发 start/end、不设置 suppress —— 让合成 click 冒泡到按钮。
     let touchStartedInPopoverOrHandle = false;
 
-    const handleTouchStart = (e: TouchEvent) => {
-      touchStartedInPopoverOrHandle = false;
+    const removeNativeSelectionSuppression = () => {
+      if (restoreNativeSelectionTimer !== null) {
+        clearTimeout(restoreNativeSelectionTimer);
+        restoreNativeSelectionTimer = null;
+      }
+      contentRef.current?.classList.remove('hsn-selection-content--suppress-native-selection');
+    };
+
+    const cancelCandidate = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      pendingWordRange = null;
       singleFingerTapCandidate = false;
       moved = false;
-      longPressTriggered = false;
+    };
+
+    const finishSelectionLifecycle = () => {
+      if (!selectionLifecycleOpen) return;
+      selectionLifecycleOpen = false;
+      const endCb = onSelectionEndRef.current;
+      const sel = window.getSelection();
+      if (endCb && sel) endCb(lastTouchPoint, sel);
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) {
-        skipClickRef.current = createSkipClickToken(null);
+        finishSelectionLifecycle();
+        cancelCandidate();
+        removeNativeSelectionSuppression();
+        touchStartedInPopoverOrHandle = false;
         return;
       }
+      cancelCandidate();
+      removeNativeSelectionSuppression();
+      touchStartedInPopoverOrHandle = false;
       const target = e.target;
       if (target instanceof Element && target.closest('.hsn-selection-handle')) {
         touchStartedInPopoverOrHandle = true;
@@ -1402,11 +1469,23 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       const touch = e.touches[0];
       startX = touch.clientX;
       startY = touch.clientY;
+      lastTouchPoint = { x: touch.clientX, y: touch.clientY };
+      pendingWordRange = selectWordAtPoint(touch.clientX, touch.clientY)?.cloneRange() ?? null;
+      contentRef.current?.classList.add('hsn-selection-content--suppress-native-selection');
       timer = setTimeout(() => {
         timer = null;
-        longPressTriggered = true;
-        const wordRange = selectWordAtPoint(touch.clientX, touch.clientY);
-        if (wordRange) {
+        const wordRange = pendingWordRange;
+        pendingWordRange = null;
+        const content = contentRef.current;
+        if (
+          wordRange &&
+          content?.contains(wordRange.startContainer) &&
+          content.contains(wordRange.endContainer) &&
+          wordRange.startContainer.isConnected &&
+          wordRange.endContainer.isConnected &&
+          wordRange.toString().trim()
+        ) {
+          selectionLifecycleOpen = true;
           setFromRangeRef.current(wordRange);
           // 移动端 setFromRange 不创建原生 Selection，handleMouseUp 检测到 isCollapsed 直接 return，
           // 因此 start/end 必须由本 touch handler 独立管理。此处触发 onSelectionStart。
@@ -1421,22 +1500,24 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
     const handleTouchMove = (e: TouchEvent) => {
       if (!singleFingerTapCandidate) {
-        if (e.touches.length !== 1) skipClickRef.current = createSkipClickToken(null);
+        if (e.touches.length !== 1) finishSelectionLifecycle();
         return;
       }
-      if (timer === null) return;
       if (e.touches.length !== 1) {
-        clearTimeout(timer);
-        timer = null;
-        singleFingerTapCandidate = false;
-        skipClickRef.current = createSkipClickToken(null);
+        finishSelectionLifecycle();
+        cancelCandidate();
+        removeNativeSelectionSuppression();
         return;
       }
       const touch = e.touches[0];
+      lastTouchPoint = { x: touch.clientX, y: touch.clientY };
       if (Math.hypot(touch.clientX - startX, touch.clientY - startY) > MOVE_THRESHOLD_PX) {
         moved = true;
-        clearTimeout(timer);
-        timer = null;
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        pendingWordRange = null;
       }
     };
 
@@ -1454,43 +1535,47 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       // 移动端 touchend 后浏览器合成 mousedown，统一抑制其触发 onSelectionStart。
       // start/end 生命周期由本 touch handler 独立管理，不依赖合成鼠标事件。
       // 修复 Issue 3：点击取消选区不应触发 start。
-      suppressNextMouseDownStartRef.current = true;
-      // 长按选词结束：触发 onSelectionEnd。
-      // 修复 Issue 1：移动端 setFromRange 不创建原生 Selection，handleMouseUp 检测 isCollapsed 直接 return，
-      // 导致 end 永远不触发。此处补充触发。
-      if (longPressTriggered && hasSelectionRef.current) {
-        const endCb = onSelectionEndRef.current;
-        if (endCb) {
-          const touch = e.changedTouches[0];
-          const sel = window.getSelection();
-          if (sel && touch) endCb({ x: touch.clientX, y: touch.clientY }, sel);
-        }
-      }
+      const touch = e.changedTouches[0];
+      if (touch) lastTouchPoint = { x: touch.clientX, y: touch.clientY };
+      suppressNextMouseDownStartRef.current = touch
+        ? createSkipClickToken({ clientX: touch.clientX, clientY: touch.clientY })
+        : null;
+      const completedLongPress = selectionLifecycleOpen;
+      finishSelectionLifecycle();
       // 轻触取消选区：已有选区且非长按、非移动 → 清除选区。
       // 修复 Issue 3：点击任意位置取消选中。
-      const isSingleFingerTap = singleFingerTapCandidate && !moved && !longPressTriggered;
+      const isSingleFingerTap = singleFingerTapCandidate && !moved && !completedLongPress;
       if (isSingleFingerTap && hasSelectionRef.current) {
         clearActiveSelectionRef.current();
       } else if (hasSelectionRef.current) {
-        const touch = e.changedTouches[0] ?? null;
-        skipClickRef.current = createSkipClickToken(
-          touch ? { clientX: touch.clientX, clientY: touch.clientY } : null,
-        );
+        const touch = e.changedTouches[0];
+        if (touch) {
+          skipClickRef.current = createSkipClickToken({
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+          });
+        }
       }
       singleFingerTapCandidate = false;
       moved = false;
-      longPressTriggered = false;
+      pendingWordRange = null;
+      restoreNativeSelectionTimer = setTimeout(() => {
+        restoreNativeSelectionTimer = null;
+        contentRef.current?.classList.remove('hsn-selection-content--suppress-native-selection');
+      }, 0);
     };
 
     const clearTimer = () => {
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      singleFingerTapCandidate = false;
-      moved = false;
-      longPressTriggered = false;
+      cancelCandidate();
+      removeNativeSelectionSuppression();
       touchStartedInPopoverOrHandle = false;
+    };
+
+    const handleTouchCancel = (e: TouchEvent) => {
+      const touch = e.changedTouches[0];
+      if (touch) lastTouchPoint = { x: touch.clientX, y: touch.clientY };
+      finishSelectionLifecycle();
+      clearTimer();
     };
 
     container.addEventListener('touchstart', handleTouchStart, {
@@ -1500,13 +1585,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       passive: true,
     });
     container.addEventListener('touchend', handleTouchEnd, { passive: true });
-    container.addEventListener('touchcancel', clearTimer, { passive: true });
+    container.addEventListener('touchcancel', handleTouchCancel, { passive: true });
     return () => {
+      finishSelectionLifecycle();
       clearTimer();
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
-      container.removeEventListener('touchcancel', clearTimer);
+      container.removeEventListener('touchcancel', handleTouchCancel);
     };
   }, [isTextTool]);
 
@@ -1646,15 +1732,15 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   //   pointerdown(document) → click(container) → click(document)
   // 这样即使点击是落在另一个高亮 rect 上，document 先清空，
   // 紧接着 container 的 click 通过 hit-test 再把新 rect 设为选中，最终状态正确。
-  // touch / pen 直接跳过，避免双指缩放等触摸手势误触发取消选中。
+  // 主触点 touch 与 mouse 共享取消逻辑；次要触点和 pen 跳过，避免缩放/手写误取消。
   useEffect(() => {
     if (!currentSelectedRangeId && !selectedRectId && !activeRect && !hasActiveTextSelection)
       return;
     const handleDocPointerDown = (e: PointerEvent) => {
-      if (e.pointerType && e.pointerType !== 'mouse') {
-        skipClickRef.current = createSkipClickToken(null);
+      if (e.pointerType === 'touch' && e.isPrimary === false) {
         return;
       }
+      if (e.pointerType && e.pointerType !== 'mouse' && e.pointerType !== 'touch') return;
       if (dragHandleRef.current || dragPersistedIdRef.current) return;
       if (e.target instanceof Element && e.target.closest('.hsn-selection-handle')) return;
       if (e.target instanceof Element && e.target.closest('.hsn-selection-popover')) return;
@@ -1676,16 +1762,25 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
       if (activeRectRef.current) {
         if (targetsExternalAction) return;
+        if (e.pointerType === 'touch') {
+          skipClickRef.current = createSkipClickToken({ clientX: e.clientX, clientY: e.clientY });
+        }
         clearActiveRect();
         return;
       }
 
       if (hasSelectionRef.current) {
         if (targetsExternalAction) return;
+        if (e.pointerType === 'touch') {
+          skipClickRef.current = createSkipClickToken({ clientX: e.clientX, clientY: e.clientY });
+        }
         clearActiveSelectionRef.current();
         return;
       }
 
+      if (e.pointerType === 'touch') {
+        skipClickRef.current = createSkipClickToken({ clientX: e.clientX, clientY: e.clientY });
+      }
       if (currentSelectedRangeIdRef.current) {
         selectRange?.(null);
       }

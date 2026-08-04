@@ -642,10 +642,12 @@ function dispatchPointer(
   clientX: number,
   clientY: number,
   pointerType: 'mouse' | 'touch' | 'pen' = 'mouse',
+  isPrimary = true,
 ): void {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY });
   Object.defineProperty(event, 'pointerId', { value: pointerId });
   Object.defineProperty(event, 'pointerType', { value: pointerType });
+  Object.defineProperty(event, 'isPrimary', { value: isPrimary });
   target.dispatchEvent(event);
 }
 
@@ -1075,6 +1077,39 @@ describe('Selection rect tool persisted and hit-testing', () => {
     expect(divRect.style.height).toBe('20%'); // 60 / 300
   });
 
+  it('selection.rect-drawing.pointercancel-clears-the-interrupted-draft', () => {
+    // Given: touch pointer movement has produced a creatable rectangle draft.
+    mockContainerGeometry();
+    const { container } = render(
+      <Selection ranges={[]} tool="rect" popover={<button type="button">Confirm</button>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    const pointerEvent = (type: string, clientX: number, clientY: number): Event => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY });
+      Object.defineProperties(event, {
+        pointerId: { value: 7 },
+        pointerType: { value: 'touch' },
+      });
+      return event;
+    };
+    act(() => {
+      host.dispatchEvent(pointerEvent('pointerdown', 40, 30));
+      document.dispatchEvent(pointerEvent('pointermove', 120, 90));
+    });
+    expect(container.querySelector('svg rect.hsn-selection-rect--active')).toBeInTheDocument();
+
+    // When: the browser cancels the pointer sequence instead of sending pointerup.
+    act(() => {
+      document.dispatchEvent(pointerEvent('pointercancel', 120, 90));
+    });
+
+    // Then: drawing state and the unconfirmed draft are both removed.
+    expect(container.querySelector('svg rect.hsn-selection-rect--active')).not.toBeInTheDocument();
+    expect(container.querySelector('.hsn-selection-popover')).not.toBeInTheDocument();
+  });
+
   it('selection.rect-hit-test.selects-persisted-rect-and-toggles', () => {
     mockContainerGeometry();
     const onSelectRect = vi.fn();
@@ -1169,8 +1204,8 @@ describe('Selection rect tool persisted and hit-testing', () => {
     expect(onSelectRect).toHaveBeenCalledWith(null);
   });
 
-  it('selection.rect-hit-test.touch-pointer-does-not-clear-selected-rect', () => {
-    // Given: touch gestures are handled by the mobile path and must not behave as outside clicks.
+  it('selection.rect-hit-test.secondary-touch-pointer-does-not-clear-selected-rect', () => {
+    // Given: a selected rect is visible before a two-finger gesture begins.
     mockContainerGeometry();
     const onSelectRect = vi.fn();
     const { container } = render(
@@ -1186,9 +1221,9 @@ describe('Selection rect tool persisted and hit-testing', () => {
     );
     const host = selectionContainer(container);
 
-    // When: a touch pointer and a two-finger touch gesture occur.
+    // When: the secondary touch pointer and its two-finger gesture occur.
     act(() => {
-      dispatchPointer(document.body, 'pointerdown', 1, 300, 200, 'touch');
+      dispatchPointer(document.body, 'pointerdown', 2, 300, 200, 'touch', false);
       fireEvent.touchStart(host, {
         touches: [
           { clientX: 40, clientY: 40 },

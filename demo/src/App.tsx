@@ -192,8 +192,10 @@ export default function App() {
     setOverallData((prev) =>
       prev.selectedRangeId === id ? prev : { ...prev, selectedRangeId: id },
     );
-    setLegacySelectedId(null);
-    setSelectedRectId(null);
+    if (id !== null) {
+      setLegacySelectedId(null);
+      setSelectedRectId(null);
+    }
   }, []);
 
   // ─────────────────────────────────────────────────────────────
@@ -231,9 +233,11 @@ export default function App() {
 
   const handleLegacySelectRange = useCallback(
     (id: string | null) => {
-      clearLinkedSelectedRange();
       setLegacySelectedId(id);
-      setSelectedRectId(null);
+      if (id !== null) {
+        clearLinkedSelectedRange();
+        setSelectedRectId(null);
+      }
     },
     [clearLinkedSelectedRange],
   );
@@ -260,9 +264,11 @@ export default function App() {
 
   const handleSelectRect = useCallback(
     (id: string | null) => {
-      clearLinkedSelectedRange();
-      setLegacySelectedId(null);
       setSelectedRectId(id);
+      if (id !== null) {
+        clearLinkedSelectedRange();
+        setLegacySelectedId(null);
+      }
     },
     [clearLinkedSelectedRange],
   );
@@ -344,8 +350,7 @@ export default function App() {
       // --hsn-handle-color CSS 变量传递；rect 手柄仍走旧 background/borderColor
       // 路径，故两处回退必须保留（strict TS 下用交叉类型而非 as Record）。
       const hsnStyle = props.style as
-        | (React.CSSProperties & { '--hsn-handle-color'?: string })
-        | undefined;
+        (React.CSSProperties & { '--hsn-handle-color'?: string }) | undefined;
       const hsnColor = hsnStyle?.['--hsn-handle-color'];
       return (
         <button
