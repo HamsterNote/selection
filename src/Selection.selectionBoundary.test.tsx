@@ -89,7 +89,9 @@ describe('Selection native drag boundary', () => {
       throw new TypeError('Expected two Selection containers');
     }
     act(() => {
-      firstContainer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      firstContainer.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+      );
     });
 
     // When: 拖动进入另一个 Selection 容器。
@@ -123,7 +125,9 @@ describe('Selection native drag boundary', () => {
     const firstContainer = selectionContainer(view.container);
     const gap = view.getByTestId('container-gap');
     act(() => {
-      firstContainer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      firstContainer.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+      );
     });
 
     // When: 第一次原生拖选连续移动到两个容器之间的间隙。

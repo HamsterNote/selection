@@ -153,8 +153,7 @@ export type LinkedSelectionRange = {
  * 用于在多个 linked Selection 容器之间同步“是否正在拖拽某 range 的手柄”。
  */
 export type LinkedSelectionDragState =
-  | { type: 'active-selection' }
-  | { type: 'persisted-range'; id: string };
+  { type: 'active-selection' } | { type: 'persisted-range'; id: string };
 
 /**
  * 联动模式的受控数据集合。
