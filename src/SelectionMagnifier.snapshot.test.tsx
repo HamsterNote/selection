@@ -36,8 +36,13 @@ describe('SelectionMagnifier snapshot lifecycle', () => {
     if (!(overlayRect instanceof Element)) throw new TypeError('Expected overlay rect');
     overlayRect.setAttribute('x', '24');
 
-    // Then: MutationObserver 在该批选框更新后只生成一张新快照。
-    await waitFor(() => expect(cloneSource).toHaveBeenCalledTimes(2));
+    // Then: MutationObserver 只同步 Overlay，不重新克隆完整 Selection 子树。
+    await waitFor(() =>
+      expect(
+        document.querySelector('.hsn-selection-magnifier__snapshot rect')?.getAttribute('x'),
+      ).toBe('24'),
+    );
+    expect(cloneSource).toHaveBeenCalledTimes(1);
     expect(
       document.querySelector('.hsn-selection-magnifier__snapshot rect')?.getAttribute('x'),
     ).toBe('24');

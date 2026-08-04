@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 新增
 
 - `HandleRenderProps.lineHeight`：文本手柄 render props 新增行高字段，供自定义 renderer 对齐行高
+- `showSelectionMagnifier`：新增可选的文本端点放大镜，默认关闭；启用后仅在拖动文本手柄期间显示，并支持联动选区跨容器切换采样内容
 
 ### 变更
 

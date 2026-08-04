@@ -251,6 +251,84 @@ describe('Selection magnifier', () => {
     );
   });
 
+  it('preserves text presentation supplied by an ancestor selector', () => {
+    // Given: 真实应用通过主题祖先选择器控制 Selection 内文字，而不是写内联样式。
+    const style = document.createElement('style');
+    style.textContent = `
+      .magnifier-theme .hsn-selection-content {
+        color: rgb(1, 2, 3);
+        font-family: serif;
+        font-size: 23px;
+        line-height: 31px;
+        letter-spacing: 2px;
+      }
+    `;
+    document.head.append(style);
+    const theme = document.createElement('div');
+    theme.className = 'magnifier-theme';
+    const source = document.createElement('div');
+    source.className = 'hsn-selection-container';
+    source.innerHTML = '<div class="hsn-selection-content">Scoped presentation</div>';
+    theme.append(source);
+    document.body.append(theme);
+    vi.spyOn(source, 'getBoundingClientRect').mockReturnValue(new DOMRect(40, 30, 180, 90));
+
+    // When: 放大镜把源内容克隆到主题祖先之外的 body portal。
+    render(<SelectionMagnifier point={{ x: 60, y: 42 }} source={source} />);
+
+    // Then: 快照文字仍使用源节点最终计算出的排版，而不是退回 body 默认值。
+    const snapshotContent = document.querySelector(
+      '.hsn-selection-magnifier__snapshot .hsn-selection-content',
+    );
+    if (!(snapshotContent instanceof HTMLElement)) {
+      throw new TypeError('Expected magnifier snapshot content');
+    }
+    expect(snapshotContent.style.color).toBe('rgb(1, 2, 3)');
+    expect(snapshotContent.style.fontFamily).toBe('serif');
+    expect(snapshotContent.style.fontSize).toBe('23px');
+    expect(snapshotContent.style.lineHeight).toBe('31px');
+    expect(snapshotContent.style.letterSpacing).toBe('2px');
+    theme.remove();
+    style.remove();
+  });
+
+  it('keeps interactive descendants in the visual snapshot out of keyboard navigation', () => {
+    // Given: Selection 内容允许包含链接、按钮等原生可聚焦元素。
+    const source = document.createElement('div');
+    source.className = 'hsn-selection-container';
+    source.innerHTML = '<a href="/details">Details</a><button type="button">Action</button>';
+    document.body.append(source);
+    vi.spyOn(source, 'getBoundingClientRect').mockReturnValue(new DOMRect(40, 30, 180, 90));
+
+    // When: 放大镜把完整内容克隆到 body portal。
+    render(<SelectionMagnifier point={{ x: 60, y: 42 }} source={source} />);
+
+    // Then: 快照仅参与视觉呈现，不得把克隆的交互控件加入页面 Tab 顺序。
+    const snapshotRoot = document.querySelector(
+      '.hsn-selection-magnifier__snapshot > .hsn-selection-container',
+    );
+    expect(snapshotRoot).toHaveAttribute('inert');
+    source.remove();
+  });
+
+  it('keeps the lens inside a viewport that is smaller than the preferred margins', () => {
+    // Given: 分屏或嵌入式 WebView 的可视区域只比镜片本身稍大。
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(124);
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(124);
+    const source = document.createElement('div');
+    document.body.append(source);
+    vi.spyOn(source, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 124, 124));
+
+    // When: 指针靠近视口左上角并显示放大镜。
+    render(<SelectionMagnifier point={{ x: 2, y: 2 }} source={source} />);
+
+    // Then: 镜片坐标不会因固定 8px 边距而变成负数、溢出视口。
+    expect(document.querySelector<HTMLElement>('.hsn-selection-magnifier')?.style.transform).toBe(
+      'translate3d(0px, 4px, 0)',
+    );
+    source.remove();
+  });
+
   it('measures an unchanged source only once while the point keeps moving', () => {
     // Given: 同一个内容源和一次已挂载的放大镜拖动会话。
     const source = document.createElement('div');

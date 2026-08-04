@@ -5,6 +5,28 @@ const LENS_SIZE = 120;
 const LENS_SCALE = 2;
 const VIEWPORT_GAP = 18;
 const VIEWPORT_EDGE_GAP = 8;
+const SNAPSHOT_PRESENTATION_PROPERTIES = [
+  'color',
+  'direction',
+  'font-family',
+  'font-feature-settings',
+  'font-kerning',
+  'font-size',
+  'font-stretch',
+  'font-style',
+  'font-variant',
+  'font-weight',
+  'letter-spacing',
+  'line-height',
+  'text-align',
+  'text-decoration',
+  'text-indent',
+  'text-shadow',
+  'text-transform',
+  'white-space',
+  'word-break',
+  'word-spacing',
+] as const;
 
 export type SelectionMagnifierPoint = {
   readonly x: number;
@@ -34,14 +56,16 @@ type MagnifierElements = {
 };
 
 function getLensTransform(point: SelectionMagnifierPoint): string {
+  const maxTop = Math.max(0, window.innerHeight - LENS_SIZE);
+  const maxLeft = Math.max(0, window.innerWidth - LENS_SIZE);
+  const verticalEdgeGap = maxTop >= VIEWPORT_EDGE_GAP * 2 ? VIEWPORT_EDGE_GAP : 0;
+  const horizontalEdgeGap = maxLeft >= VIEWPORT_EDGE_GAP * 2 ? VIEWPORT_EDGE_GAP : 0;
   const preferredTop = point.y - LENS_SIZE - VIEWPORT_GAP;
-  const top =
-    preferredTop >= VIEWPORT_EDGE_GAP
-      ? preferredTop
-      : Math.min(window.innerHeight - LENS_SIZE - VIEWPORT_EDGE_GAP, point.y + VIEWPORT_GAP);
+  const requestedTop = preferredTop >= VIEWPORT_EDGE_GAP ? preferredTop : point.y + VIEWPORT_GAP;
+  const top = Math.min(maxTop - verticalEdgeGap, Math.max(verticalEdgeGap, requestedTop));
   const left = Math.min(
-    window.innerWidth - LENS_SIZE - VIEWPORT_EDGE_GAP,
-    Math.max(VIEWPORT_EDGE_GAP, point.x - LENS_SIZE / 2),
+    maxLeft - horizontalEdgeGap,
+    Math.max(horizontalEdgeGap, point.x - LENS_SIZE / 2),
   );
   return `translate3d(${left}px, ${top}px, 0)`;
 }
@@ -49,6 +73,38 @@ function getLensTransform(point: SelectionMagnifierPoint): string {
 function applyPoint({ lens, snapshot, point, sourceRect }: MagnifierElements): void {
   lens.style.transform = getLensTransform(point);
   snapshot.style.transform = `translate3d(${LENS_SIZE / 2 - (point.x - sourceRect.left) * LENS_SCALE}px, ${LENS_SIZE / 2 - (point.y - sourceRect.top) * LENS_SCALE}px, 0) scale(${LENS_SCALE})`;
+}
+
+function removeCloneIds(root: Element): void {
+  root.removeAttribute('id');
+  root.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+}
+
+function copySnapshotPresentation(source: Element, clone: Element): void {
+  const sourceElements = [source, ...source.querySelectorAll('*')];
+  const cloneElements = [clone, ...clone.querySelectorAll('*')];
+  for (let index = 0; index < sourceElements.length; index += 1) {
+    const sourceElement = sourceElements[index];
+    const cloneElement = cloneElements[index];
+    if (!(cloneElement instanceof HTMLElement || cloneElement instanceof SVGElement)) continue;
+    const sourceStyle = window.getComputedStyle(sourceElement);
+    for (const property of SNAPSHOT_PRESENTATION_PROPERTIES) {
+      cloneElement.style.setProperty(
+        property,
+        sourceStyle.getPropertyValue(property),
+        sourceStyle.getPropertyPriority(property),
+      );
+    }
+    for (let propertyIndex = 0; propertyIndex < sourceStyle.length; propertyIndex += 1) {
+      const property = sourceStyle.item(propertyIndex);
+      if (!property.startsWith('--')) continue;
+      cloneElement.style.setProperty(
+        property,
+        sourceStyle.getPropertyValue(property),
+        sourceStyle.getPropertyPriority(property),
+      );
+    }
+  }
 }
 
 const SelectionMagnifierComponent = forwardRef<SelectionMagnifierHandle, SelectionMagnifierProps>(
@@ -70,11 +126,10 @@ const SelectionMagnifierComponent = forwardRef<SelectionMagnifierHandle, Selecti
 
       const clone = source.cloneNode(true);
       if (!(clone instanceof HTMLDivElement)) return;
-      clone.removeAttribute('id');
-      clone.querySelectorAll('[id]').forEach((element) => {
-        element.removeAttribute('id');
-      });
+      removeCloneIds(clone);
       clone.setAttribute('aria-hidden', 'true');
+      clone.setAttribute('inert', '');
+      copySnapshotPresentation(source, clone);
       const sourceStyle = window.getComputedStyle(source);
       for (let index = 0; index < sourceStyle.length; index += 1) {
         const property = sourceStyle.item(index);
@@ -152,12 +207,28 @@ const SelectionMagnifierComponent = forwardRef<SelectionMagnifierHandle, Selecti
 
     useLayoutEffect(() => {
       if (typeof MutationObserver === 'undefined') return;
-      const overlays = source.querySelectorAll(
-        '.hsn-selection-overlay, .hsn-selection-percent-overlay',
-      );
+      const overlays = [
+        ...source.querySelectorAll('.hsn-selection-overlay, .hsn-selection-percent-overlay'),
+      ];
       if (overlays.length === 0) return;
 
-      const observer = new MutationObserver(() => captureSnapshot());
+      const observer = new MutationObserver(() => {
+        const snapshotRoot = snapshotRef.current?.firstElementChild;
+        if (!snapshotRoot) return;
+        const snapshotOverlays = [
+          ...snapshotRoot.querySelectorAll(
+            '.hsn-selection-overlay, .hsn-selection-percent-overlay',
+          ),
+        ];
+        overlays.forEach((overlay, index) => {
+          const snapshotOverlay = snapshotOverlays[index];
+          if (!snapshotOverlay) return;
+          const overlayClone = overlay.cloneNode(true);
+          if (!(overlayClone instanceof Element)) return;
+          removeCloneIds(overlayClone);
+          snapshotOverlay.replaceWith(overlayClone);
+        });
+      });
       overlays.forEach((overlay) => {
         observer.observe(overlay, {
           attributes: true,
@@ -166,7 +237,7 @@ const SelectionMagnifierComponent = forwardRef<SelectionMagnifierHandle, Selecti
         });
       });
       return () => observer.disconnect();
-    }, [captureSnapshot, source]);
+    }, [source]);
 
     useLayoutEffect(() => {
       const lens = lensRef.current;

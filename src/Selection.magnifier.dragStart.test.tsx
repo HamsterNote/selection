@@ -58,28 +58,45 @@ function installCaretHit(text: Text): ReturnType<typeof vi.fn> {
   return caretRangeFromPoint;
 }
 
-function dispatchPointerMove(clientX: number, clientY: number): void {
+function dispatchPointerMove(clientX: number, clientY: number, pointerId = 1): void {
   const event = new MouseEvent('pointermove', {
     bubbles: true,
     cancelable: true,
     clientX,
     clientY,
   });
-  Object.defineProperty(event, 'pointerId', { value: 1 });
+  Object.defineProperty(event, 'pointerId', { value: pointerId });
   Object.defineProperty(event, 'pointerType', { value: 'mouse' });
   document.dispatchEvent(event);
 }
 
-function dispatchPointerDown(target: HTMLElement, clientX: number, clientY: number): void {
+function dispatchPointerDown(
+  target: HTMLElement,
+  clientX: number,
+  clientY: number,
+  pointerId = 1,
+): void {
   const event = new MouseEvent('pointerdown', {
     bubbles: true,
     cancelable: true,
     clientX,
     clientY,
   });
-  Object.defineProperty(event, 'pointerId', { value: 1 });
+  Object.defineProperty(event, 'pointerId', { value: pointerId });
   Object.defineProperty(event, 'pointerType', { value: 'mouse' });
   target.dispatchEvent(event);
+}
+
+function dispatchPointerUp(clientX: number, clientY: number, pointerId: number): void {
+  const event = new MouseEvent('pointerup', {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY,
+  });
+  Object.defineProperty(event, 'pointerId', { value: pointerId });
+  Object.defineProperty(event, 'pointerType', { value: 'touch' });
+  document.dispatchEvent(event);
 }
 
 function restoreCaretRangeFromPoint(): void {
@@ -201,6 +218,48 @@ describe('Selection magnifier drag start', () => {
 
     // Then: capture 路径同样直接使用原始指针坐标。
     expect(caretRangeFromPoint).toHaveBeenLastCalledWith(60, 43);
+  });
+
+  it('ignores secondary pointers until the initiating pointer ends the drag', () => {
+    // Given: 第一根手指以 pointerId=7 开始拖动文本手柄。
+    installRangeGeometry();
+    const view = render(
+      <Selection
+        ranges={[{ ...percentRange(), overlayRectType: 'px', rects: [TEXT_RECT] }]}
+        selectedRangeId="percent-range"
+        showSelectionMagnifier
+      >
+        Pointer selection fixture
+      </Selection>,
+    );
+    const handle = view.container.querySelector('.hsn-selection-handle--start');
+    const text = view.container.querySelector('.hsn-selection-content')?.firstChild;
+    if (!(handle instanceof HTMLElement)) throw new TypeError('Expected start handle');
+    if (!(text instanceof Text)) throw new TypeError('Expected content text');
+    installCaretHit(text);
+    act(() => dispatchPointerDown(handle, 40, 42, 7));
+    const initialTransform = document.querySelector<HTMLElement>('.hsn-selection-magnifier')?.style
+      .transform;
+
+    // When: 第二根手指移动并抬起，而发起拖动的第一根手指仍按住。
+    act(() => dispatchPointerMove(200, 80, 8));
+    act(() => dispatchPointerUp(200, 80, 8));
+
+    // Then: 第二触点既不能移动镜片，也不能提前结束第一触点的拖拽会话。
+    expect(document.querySelector<HTMLElement>('.hsn-selection-magnifier')?.style.transform).toBe(
+      initialTransform,
+    );
+    expect(document.querySelector('.hsn-selection-magnifier')).not.toBeNull();
+
+    // When: 发起触点自己移动并抬起。
+    act(() => dispatchPointerMove(60, 43, 7));
+    expect(
+      document.querySelector<HTMLElement>('.hsn-selection-magnifier')?.style.transform,
+    ).not.toBe(initialTransform);
+    act(() => dispatchPointerUp(60, 43, 7));
+
+    // Then: 只有发起触点能正常结束会话。
+    expect(document.querySelector('.hsn-selection-magnifier')).toBeNull();
   });
 });
 

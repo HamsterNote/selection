@@ -125,6 +125,7 @@ type TextHandleDragStart = {
   readonly rangeId: string | undefined;
   readonly handleElement: HTMLElement;
   readonly pointer: ClickPoint;
+  readonly pointerId: number | null;
 };
 
 /** 生成唯一 ID（毫秒时间戳 + 6 位随机串） */
@@ -544,6 +545,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 被拖动手柄的 DOM 引用：拖动开始时设为手柄元素，用于 onUp 恢复 pointerEvents。
   // 避免依赖 React state → CSS class 链（重渲染延迟导致首帧 pointermove 命中手柄）。
   const dragHandleElRef = useRef<HTMLElement | null>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
   const [magnifierTarget, setMagnifierTarget] = useState<SelectionMagnifierTarget | null>(null);
   const magnifierRef = useRef<SelectionMagnifierHandle>(null);
   // 拖动/拖选结束后记录一个短期 click 跳过令牌，只跳过紧随其后、同坐标的合成 click。
@@ -1803,7 +1805,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   ]);
 
   const beginHandleDrag = useCallback(
-    ({ type: which, rangeId, handleElement, pointer }: TextHandleDragStart) => {
+    ({ type: which, rangeId, handleElement, pointer, pointerId }: TextHandleDragStart) => {
       const nextPersistedId = rangeId ?? null;
       if (dragHandleRef.current === which && dragPersistedIdRef.current === nextPersistedId) return;
 
@@ -1814,6 +1816,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       dragHandleElRef.current = handleElement;
       dragHandleRef.current = which;
       dragPersistedIdRef.current = nextPersistedId;
+      dragPointerIdRef.current = pointerId;
       const container = containerRef.current;
       if (showSelectionMagnifier && container) {
         setMagnifierTarget({
@@ -1885,13 +1888,19 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         rangeId,
         handleElement: e.currentTarget,
         pointer: { clientX: e.clientX, clientY: e.clientY },
+        pointerId: 'pointerId' in e ? e.pointerId : null,
       });
     },
     [beginHandleDrag],
   );
 
   const beginRectHandleDrag = useCallback(
-    (which: 'start' | 'end', rectId: string | undefined, handleElement: HTMLElement) => {
+    (
+      which: 'start' | 'end',
+      rectId: string | undefined,
+      handleElement: HTMLElement,
+      pointerId: number | null,
+    ) => {
       const nextPersistedId = rectId ?? null;
       if (dragHandleRef.current === which && dragPersistedIdRef.current === nextPersistedId) return;
 
@@ -1899,6 +1908,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       dragHandleElRef.current = handleElement;
       dragHandleRef.current = which;
       dragPersistedIdRef.current = nextPersistedId;
+      dragPointerIdRef.current = pointerId;
 
       if (nextPersistedId) {
         const item = propRects.find((r) => r.id === nextPersistedId);
@@ -1923,7 +1933,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     (which: 'start' | 'end', rectId?: string) => (e: HandleDragStartEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      beginRectHandleDrag(which, rectId, e.currentTarget);
+      beginRectHandleDrag(which, rectId, e.currentTarget, 'pointerId' in e ? e.pointerId : null);
     },
     [beginRectHandleDrag],
   );
@@ -1949,7 +1959,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
       if (handle.classList.contains('hsn-selection-handle-rect')) {
         const rectId = handle.getAttribute('data-rect-id') || undefined;
-        beginRectHandleDrag(type, rectId, handle);
+        beginRectHandleDrag(type, rectId, handle, 'pointerId' in event ? event.pointerId : null);
       } else {
         const rangeId = !hasSelectionRef.current
           ? (currentSelectedRangeIdRef.current ?? undefined)
@@ -1959,6 +1969,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
           rangeId,
           handleElement: handle,
           pointer: { clientX: event.clientX, clientY: event.clientY },
+          pointerId: 'pointerId' in event ? event.pointerId : null,
         });
       }
     };
@@ -1991,6 +2002,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     const onMove = (e: PointerEvent) => {
       const which = dragHandleRef.current;
       if (!which) return;
+      if (dragPointerIdRef.current !== null && e.pointerId !== dragPointerIdRef.current) return;
       const container = containerRef.current;
       if (!container) return;
       const persistedId = dragPersistedIdRef.current;
@@ -2223,6 +2235,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
     const onUp = (e: PointerEvent | FocusEvent) => {
       if (!dragHandleRef.current && !dragPersistedIdRef.current) return;
+      if (
+        'pointerId' in e &&
+        dragPointerIdRef.current !== null &&
+        e.pointerId !== dragPointerIdRef.current
+      ) {
+        return;
+      }
       const persistedId = dragPersistedIdRef.current;
       if (dragHandleElRef.current) {
         dragHandleElRef.current.style.pointerEvents = '';
@@ -2236,6 +2255,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       }
       dragHandleRef.current = null;
       dragPersistedIdRef.current = null;
+      dragPointerIdRef.current = null;
       dragLinkedAnchorRef.current = null;
       dragAnchorRef.current = -1;
       setMagnifierTarget(null);
@@ -2493,13 +2513,19 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             event.preventDefault();
             event.stopPropagation();
             if (target === 'rect') {
-              beginRectHandleDrag(type, rectId ?? undefined, el);
+              beginRectHandleDrag(
+                type,
+                rectId ?? undefined,
+                el,
+                'pointerId' in event ? event.pointerId : null,
+              );
             } else {
               beginHandleDrag({
                 type,
                 rangeId: rangeId ?? undefined,
                 handleElement: el,
                 pointer: { clientX: event.clientX, clientY: event.clientY },
+                pointerId: 'pointerId' in event ? event.pointerId : null,
               });
             }
           };
