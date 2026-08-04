@@ -27,6 +27,11 @@ import {
   resolveEndpoint,
   syncSelectionOrder,
 } from './linkedRegistry';
+import {
+  SelectionMagnifier,
+  type SelectionMagnifierHandle,
+  type SelectionMagnifierTarget,
+} from './SelectionMagnifier';
 import './style.css';
 import {
   buildPercentRectStyle,
@@ -46,6 +51,7 @@ import type {
   LinkedSelectionData,
   LinkedSelectionDragState,
   LinkedSelectionRange,
+  MousePosition,
   OverlayRect,
   OverlayRectType,
   PercentOverlayRect,
@@ -113,6 +119,14 @@ type LinkedModeContext = {
 };
 
 type HandleDragStartEvent = React.PointerEvent<HTMLElement> | React.MouseEvent<HTMLElement>;
+
+type TextHandleDragStart = {
+  readonly type: 'start' | 'end';
+  readonly rangeId: string | undefined;
+  readonly handleElement: HTMLElement;
+  readonly pointer: ClickPoint;
+  readonly pointerId: number | null;
+};
 
 /** 生成唯一 ID（毫秒时间戳 + 6 位随机串） */
 function generateId(): string {
@@ -441,6 +455,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     popover,
     selectionPopover,
     newSelectionOptions,
+    showSelectionMagnifier = false,
     renderHandle,
     markerColors,
     markerStyle,
@@ -530,6 +545,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   // 被拖动手柄的 DOM 引用：拖动开始时设为手柄元素，用于 onUp 恢复 pointerEvents。
   // 避免依赖 React state → CSS class 链（重渲染延迟导致首帧 pointermove 命中手柄）。
   const dragHandleElRef = useRef<HTMLElement | null>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
+  const [magnifierTarget, setMagnifierTarget] = useState<SelectionMagnifierTarget | null>(null);
+  const magnifierRef = useRef<SelectionMagnifierHandle>(null);
   // 拖动/拖选结束后记录一个短期 click 跳过令牌，只跳过紧随其后、同坐标的合成 click。
   // 跨区域拖选可能不会在结束容器派发 click；令牌不能残留到用户下一次空白点击。
   const skipClickRef = useRef<SkipClickToken | null>(null);
@@ -696,11 +714,11 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   const onSelectionEndRef = useRef(onSelectionEnd);
   onSelectionEndRef.current = onSelectionEnd;
   // 移动端 touchend 后浏览器会合成 mousedown/mouseup/click 事件。
-  // 该 ref 标记「下一个合成 mousedown 不应触发 onSelectionStart」，用于：
+  // 该 ref 仅匹配同坐标且未过期的合成 mousedown，用于：
   // 1. 长按选词 —— 已在 timer 回调中触发过 start，合成 mousedown 不应重复触发；
   // 2. 点击取消选区 —— 只应清除选区，不应触发 start；
   // 3. 普通轻触 —— 移动端不通过 mousedown 表达「开始选择」，统一抑制。
-  const suppressNextMouseDownStartRef = useRef(false);
+  const suppressNextMouseDownStartRef = useRef<SkipClickToken | null>(null);
   // 桥接 ref：文档级取消选中监听需要读取最新矩形选中回调，但不应频繁重绑监听器。
   const selectedRectIdRef = useRef<string | null>(selectedRectId);
   selectedRectIdRef.current = selectedRectId;
@@ -1157,17 +1175,37 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       setActiveRect(null);
     };
 
+    const handlePointerCancel = (event: PointerEvent) => {
+      if (!rectDrawingStartRef.current) return;
+      if (
+        rectDrawingPointerIdRef.current !== event.pointerId &&
+        rectDrawingPointerIdRef.current !== null
+      ) {
+        return;
+      }
+      rectDrawingStartRef.current = null;
+      rectDrawingPointerIdRef.current = null;
+      setIsDrawingRect(false);
+      setIsSelectingText(false);
+      mouseSelectingTextRef.current = false;
+      setLinkedSelectingText(false);
+      setActiveRect(null);
+      container.releasePointerCapture?.(event.pointerId);
+    };
+
     container.addEventListener('selectstart', handleNativeSelectStart, true);
     container.addEventListener('dragstart', handleNativeSelectStart, true);
     container.addEventListener('pointerdown', handlePointerDown, true);
     document.addEventListener('pointermove', handlePointerMove);
     document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerCancel);
     return () => {
       container.removeEventListener('selectstart', handleNativeSelectStart, true);
       container.removeEventListener('dragstart', handleNativeSelectStart, true);
       container.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('pointermove', handlePointerMove);
       document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerCancel);
       rectDrawingStartRef.current = null;
       rectDrawingPointerIdRef.current = null;
     };
@@ -1202,8 +1240,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       // 移动端 touchend 合成的 mousedown：若已标记抑制，消费标记并退出。
       // 长按选词已在 timer 中触发 start；点击取消选区不应触发 start；
       // 普通轻触在移动端不通过 mousedown 表达「开始选择」。
-      if (suppressNextMouseDownStartRef.current) {
-        suppressNextMouseDownStartRef.current = false;
+      const suppressMouseDown = suppressNextMouseDownStartRef.current;
+      suppressNextMouseDownStartRef.current = null;
+      if (suppressMouseDown && skipClickTokenMatches(suppressMouseDown, e)) {
         return;
       }
 
@@ -1294,15 +1333,28 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       onSelectionEndRef.current?.({ x: e.clientX, y: e.clientY }, selection);
     };
 
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!mouseSelectingTextRef.current) return;
+      if (linkedSelectionId) return;
+      const target = e.target;
+      if (target instanceof Element && target.closest('.hsn-selection-container')) return;
+
+      // 绝对定位内容可能让视觉空白实际命中容器外层。此时浏览器会把原生选区
+      // 吸附到最近的文字（常见为容器首字符），所以保留上一次有效选区。
+      e.preventDefault();
+    };
+
     container.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mousemove', handleMouseMove);
     // mouseup 监听挂在 document 上：用户可能在容器内按下后拖出容器再松开，
     // 这种情况下 mouseup 不会冒泡到容器，所以要在 document 层捕获。
     document.addEventListener('mouseup', handleMouseUp);
     return () => {
       container.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isTextTool, onSelectRect, setLinkedSelectingText]);
+  }, [isTextTool, linkedSelectionId, onSelectRect, setLinkedSelectingText]);
 
   useEffect(() => {
     if (!hasSelection && !mouseSelectingTextRef.current) {
@@ -1312,15 +1364,16 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   }, [hasSelection, setLinkedSelectingText]);
 
   // 触摸设备长按文字触发的原生 contextmenu（系统选区菜单/复制弹窗）需屏蔽。
-  // 仅在 pointerType === 'touch' 时 preventDefault，桌面右键菜单不受影响。
+  // iOS 可能派发没有 pointerType 的 MouseEvent，因此粗指针环境也要作为触摸菜单处理。
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const handleContextMenu = (e: MouseEvent) => {
-      // contextmenu 的 TS 类型是 MouseEvent，但触摸触发时浏览器实际派发的是 PointerEvent 子类，
-      // 其上携带 pointerType。用 in 守卫做类型窄化，避免 as any。
       if (!isTextTool) return;
-      if ('pointerType' in e && (e as PointerEvent).pointerType === 'touch') {
+      const comesFromTouch = 'pointerType' in e && e.pointerType === 'touch';
+      const usesCoarsePointer =
+        typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+      if (comesFromTouch || usesCoarsePointer) {
         e.preventDefault();
       }
     };
@@ -1330,7 +1383,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
   }, [isTextTool]);
 
-  // 触摸设备长按检测：代替原生长按选词（因 user-select:none 禁用了原生选区 UI）。
+  // 触摸设备长按检测：先在内容仍可选时命中文字，再临时禁选以阻止原生选区 UI。
+  // touchstart 保持被动，不取消滚动；定时器消费缓存的 Range，避免旧 WebKit 命中失败。
   // touchstart 后启动计时器，若在 LONG_PRESS_MS 内未发生超过 MOVE_THRESHOLD_PX 的位移，
   // 判定为长按并通过 selectWordAtPoint 计算单词 Range，再通过 setFromRange 注入 hook state。
   // 全程不创建原生 Selection，不触发 selectionchange，不出现原生水滴手柄/蓝色高亮。
@@ -1350,23 +1404,54 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     let timer: ReturnType<typeof setTimeout> | null = null;
     let startX = 0;
     let startY = 0;
+    let lastTouchPoint: MousePosition = { x: 0, y: 0 };
     let moved = false;
-    let longPressTriggered = false;
+    let selectionLifecycleOpen = false;
+    let pendingWordRange: Range | null = null;
+    let restoreNativeSelectionTimer: ReturnType<typeof setTimeout> | null = null;
     // 仅「单指无移动轻触」才允许取消活跃选区；双指缩放/单指拖动都应保留选区。
     let singleFingerTapCandidate = false;
     // 标记本次 touch 从 Popover/手柄内发起。
     // 若 true，touchend 不干预选区、不触发 start/end、不设置 suppress —— 让合成 click 冒泡到按钮。
     let touchStartedInPopoverOrHandle = false;
 
-    const handleTouchStart = (e: TouchEvent) => {
-      touchStartedInPopoverOrHandle = false;
+    const removeNativeSelectionSuppression = () => {
+      if (restoreNativeSelectionTimer !== null) {
+        clearTimeout(restoreNativeSelectionTimer);
+        restoreNativeSelectionTimer = null;
+      }
+      contentRef.current?.classList.remove('hsn-selection-content--suppress-native-selection');
+    };
+
+    const cancelCandidate = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      pendingWordRange = null;
       singleFingerTapCandidate = false;
       moved = false;
-      longPressTriggered = false;
+    };
+
+    const finishSelectionLifecycle = () => {
+      if (!selectionLifecycleOpen) return;
+      selectionLifecycleOpen = false;
+      const endCb = onSelectionEndRef.current;
+      const sel = window.getSelection();
+      if (endCb && sel) endCb(lastTouchPoint, sel);
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) {
-        skipClickRef.current = createSkipClickToken(null);
+        finishSelectionLifecycle();
+        cancelCandidate();
+        removeNativeSelectionSuppression();
+        touchStartedInPopoverOrHandle = false;
         return;
       }
+      cancelCandidate();
+      removeNativeSelectionSuppression();
+      touchStartedInPopoverOrHandle = false;
       const target = e.target;
       if (target instanceof Element && target.closest('.hsn-selection-handle')) {
         touchStartedInPopoverOrHandle = true;
@@ -1387,11 +1472,23 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       const touch = e.touches[0];
       startX = touch.clientX;
       startY = touch.clientY;
+      lastTouchPoint = { x: touch.clientX, y: touch.clientY };
+      pendingWordRange = selectWordAtPoint(touch.clientX, touch.clientY)?.cloneRange() ?? null;
+      contentRef.current?.classList.add('hsn-selection-content--suppress-native-selection');
       timer = setTimeout(() => {
         timer = null;
-        longPressTriggered = true;
-        const wordRange = selectWordAtPoint(touch.clientX, touch.clientY);
-        if (wordRange) {
+        const wordRange = pendingWordRange;
+        pendingWordRange = null;
+        const content = contentRef.current;
+        if (
+          wordRange &&
+          content?.contains(wordRange.startContainer) &&
+          content.contains(wordRange.endContainer) &&
+          wordRange.startContainer.isConnected &&
+          wordRange.endContainer.isConnected &&
+          wordRange.toString().trim()
+        ) {
+          selectionLifecycleOpen = true;
           setFromRangeRef.current(wordRange);
           // 移动端 setFromRange 不创建原生 Selection，handleMouseUp 检测到 isCollapsed 直接 return，
           // 因此 start/end 必须由本 touch handler 独立管理。此处触发 onSelectionStart。
@@ -1406,22 +1503,24 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
     const handleTouchMove = (e: TouchEvent) => {
       if (!singleFingerTapCandidate) {
-        if (e.touches.length !== 1) skipClickRef.current = createSkipClickToken(null);
+        if (e.touches.length !== 1) finishSelectionLifecycle();
         return;
       }
-      if (timer === null) return;
       if (e.touches.length !== 1) {
-        clearTimeout(timer);
-        timer = null;
-        singleFingerTapCandidate = false;
-        skipClickRef.current = createSkipClickToken(null);
+        finishSelectionLifecycle();
+        cancelCandidate();
+        removeNativeSelectionSuppression();
         return;
       }
       const touch = e.touches[0];
+      lastTouchPoint = { x: touch.clientX, y: touch.clientY };
       if (Math.hypot(touch.clientX - startX, touch.clientY - startY) > MOVE_THRESHOLD_PX) {
         moved = true;
-        clearTimeout(timer);
-        timer = null;
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        pendingWordRange = null;
       }
     };
 
@@ -1439,43 +1538,47 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       // 移动端 touchend 后浏览器合成 mousedown，统一抑制其触发 onSelectionStart。
       // start/end 生命周期由本 touch handler 独立管理，不依赖合成鼠标事件。
       // 修复 Issue 3：点击取消选区不应触发 start。
-      suppressNextMouseDownStartRef.current = true;
-      // 长按选词结束：触发 onSelectionEnd。
-      // 修复 Issue 1：移动端 setFromRange 不创建原生 Selection，handleMouseUp 检测 isCollapsed 直接 return，
-      // 导致 end 永远不触发。此处补充触发。
-      if (longPressTriggered && hasSelectionRef.current) {
-        const endCb = onSelectionEndRef.current;
-        if (endCb) {
-          const touch = e.changedTouches[0];
-          const sel = window.getSelection();
-          if (sel && touch) endCb({ x: touch.clientX, y: touch.clientY }, sel);
-        }
-      }
+      const touch = e.changedTouches[0];
+      if (touch) lastTouchPoint = { x: touch.clientX, y: touch.clientY };
+      suppressNextMouseDownStartRef.current = touch
+        ? createSkipClickToken({ clientX: touch.clientX, clientY: touch.clientY })
+        : null;
+      const completedLongPress = selectionLifecycleOpen;
+      finishSelectionLifecycle();
       // 轻触取消选区：已有选区且非长按、非移动 → 清除选区。
       // 修复 Issue 3：点击任意位置取消选中。
-      const isSingleFingerTap = singleFingerTapCandidate && !moved && !longPressTriggered;
+      const isSingleFingerTap = singleFingerTapCandidate && !moved && !completedLongPress;
       if (isSingleFingerTap && hasSelectionRef.current) {
         clearActiveSelectionRef.current();
       } else if (hasSelectionRef.current) {
-        const touch = e.changedTouches[0] ?? null;
-        skipClickRef.current = createSkipClickToken(
-          touch ? { clientX: touch.clientX, clientY: touch.clientY } : null,
-        );
+        const touch = e.changedTouches[0];
+        if (touch) {
+          skipClickRef.current = createSkipClickToken({
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+          });
+        }
       }
       singleFingerTapCandidate = false;
       moved = false;
-      longPressTriggered = false;
+      pendingWordRange = null;
+      restoreNativeSelectionTimer = setTimeout(() => {
+        restoreNativeSelectionTimer = null;
+        contentRef.current?.classList.remove('hsn-selection-content--suppress-native-selection');
+      }, 0);
     };
 
     const clearTimer = () => {
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      singleFingerTapCandidate = false;
-      moved = false;
-      longPressTriggered = false;
+      cancelCandidate();
+      removeNativeSelectionSuppression();
       touchStartedInPopoverOrHandle = false;
+    };
+
+    const handleTouchCancel = (e: TouchEvent) => {
+      const touch = e.changedTouches[0];
+      if (touch) lastTouchPoint = { x: touch.clientX, y: touch.clientY };
+      finishSelectionLifecycle();
+      clearTimer();
     };
 
     container.addEventListener('touchstart', handleTouchStart, {
@@ -1485,13 +1588,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       passive: true,
     });
     container.addEventListener('touchend', handleTouchEnd, { passive: true });
-    container.addEventListener('touchcancel', clearTimer, { passive: true });
+    container.addEventListener('touchcancel', handleTouchCancel, { passive: true });
     return () => {
+      finishSelectionLifecycle();
       clearTimer();
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
-      container.removeEventListener('touchcancel', clearTimer);
+      container.removeEventListener('touchcancel', handleTouchCancel);
     };
   }, [isTextTool]);
 
@@ -1631,27 +1735,25 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
   //   pointerdown(document) → click(container) → click(document)
   // 这样即使点击是落在另一个高亮 rect 上，document 先清空，
   // 紧接着 container 的 click 通过 hit-test 再把新 rect 设为选中，最终状态正确。
-  // touch / pen 直接跳过，避免双指缩放等触摸手势误触发取消选中。
+  // 主触点 touch 与 mouse 共享取消逻辑；次要触点和 pen 跳过，避免缩放/手写误取消。
   useEffect(() => {
-    if (!currentSelectedRangeId && !selectedRectId && !activeRect) return;
+    if (!currentSelectedRangeId && !selectedRectId && !activeRect && !hasActiveTextSelection)
+      return;
     const handleDocPointerDown = (e: PointerEvent) => {
-      if (e.pointerType && e.pointerType !== 'mouse') {
-        skipClickRef.current = createSkipClickToken(null);
+      if (e.pointerType === 'touch' && e.isPrimary === false) {
         return;
       }
+      if (e.pointerType && e.pointerType !== 'mouse' && e.pointerType !== 'touch') return;
       if (dragHandleRef.current || dragPersistedIdRef.current) return;
       if (e.target instanceof Element && e.target.closest('.hsn-selection-handle')) return;
       if (e.target instanceof Element && e.target.closest('.hsn-selection-popover')) return;
-      // 外部工具栏/表单控件本身是一个明确操作（如确认矩形、切换工具），
-      // 不应被当作“点击空白处取消选中”，否则 pointerdown 会抢在 button click 前清掉 active rect。
-      if (
+      // 外部控件可能通过 Selection ref 确认当前草稿，因此只延后草稿取消；
+      // 已确认的文本/矩形选中项仍应响应页面任意位置的 pointerdown。
+      const targetsExternalAction =
         e.target instanceof Element &&
         e.target.closest(
           'button, input, select, textarea, label, a[href], [role="button"], [role="menuitem"], [contenteditable="true"]',
-        )
-      ) {
-        return;
-      }
+        ) !== null;
       const popoverEl = popoverRef.current;
       if (popoverEl && e.target instanceof Node && popoverEl.contains(e.target)) return;
       const selectionPopoverEl = selectionPopoverRef.current;
@@ -1662,10 +1764,26 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       if (container && e.target instanceof Node && container.contains(e.target)) return;
 
       if (activeRectRef.current) {
+        if (targetsExternalAction) return;
+        if (e.pointerType === 'touch') {
+          skipClickRef.current = createSkipClickToken({ clientX: e.clientX, clientY: e.clientY });
+        }
         clearActiveRect();
         return;
       }
 
+      if (hasSelectionRef.current) {
+        if (targetsExternalAction) return;
+        if (e.pointerType === 'touch') {
+          skipClickRef.current = createSkipClickToken({ clientX: e.clientX, clientY: e.clientY });
+        }
+        clearActiveSelectionRef.current();
+        return;
+      }
+
+      if (e.pointerType === 'touch') {
+        skipClickRef.current = createSkipClickToken({ clientX: e.clientX, clientY: e.clientY });
+      }
       if (currentSelectedRangeIdRef.current) {
         selectRange?.(null);
       }
@@ -1673,14 +1791,21 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         onSelectRectRef.current?.(null);
       }
     };
-    document.addEventListener('pointerdown', handleDocPointerDown);
+    document.addEventListener('pointerdown', handleDocPointerDown, true);
     return () => {
-      document.removeEventListener('pointerdown', handleDocPointerDown);
+      document.removeEventListener('pointerdown', handleDocPointerDown, true);
     };
-  }, [activeRect, clearActiveRect, currentSelectedRangeId, selectRange, selectedRectId]);
+  }, [
+    activeRect,
+    clearActiveRect,
+    currentSelectedRangeId,
+    hasActiveTextSelection,
+    selectRange,
+    selectedRectId,
+  ]);
 
   const beginHandleDrag = useCallback(
-    (which: 'start' | 'end', rangeId: string | undefined, handleElement: HTMLElement) => {
+    ({ type: which, rangeId, handleElement, pointer, pointerId }: TextHandleDragStart) => {
       const nextPersistedId = rangeId ?? null;
       if (dragHandleRef.current === which && dragPersistedIdRef.current === nextPersistedId) return;
 
@@ -1691,6 +1816,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       dragHandleElRef.current = handleElement;
       dragHandleRef.current = which;
       dragPersistedIdRef.current = nextPersistedId;
+      dragPointerIdRef.current = pointerId;
+      const container = containerRef.current;
+      if (showSelectionMagnifier && container) {
+        setMagnifierTarget({
+          point: { x: pointer.clientX, y: pointer.clientY },
+          source: container,
+        });
+      }
 
       // 缓存拖动锚点：不动的那个边界。拖 start 锚点=end，拖 end 锚点=start。
       // 活跃选区从 ref 读取当前 endIndex/startIndex；高亮 range 从 ranges 读取当前 range 的 end/start。
@@ -1736,7 +1869,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       setDragHandle(which);
       setDragPersistedId(nextPersistedId);
     },
-    [linkedRange, setLinkedDraggingRange],
+    [linkedRange, setLinkedDraggingRange, showSelectionMagnifier],
   );
 
   /**
@@ -1750,13 +1883,24 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     (which: 'start' | 'end', rangeId?: string) => (e: HandleDragStartEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      beginHandleDrag(which, rangeId, e.currentTarget);
+      beginHandleDrag({
+        type: which,
+        rangeId,
+        handleElement: e.currentTarget,
+        pointer: { clientX: e.clientX, clientY: e.clientY },
+        pointerId: 'pointerId' in e ? e.pointerId : null,
+      });
     },
     [beginHandleDrag],
   );
 
   const beginRectHandleDrag = useCallback(
-    (which: 'start' | 'end', rectId: string | undefined, handleElement: HTMLElement) => {
+    (
+      which: 'start' | 'end',
+      rectId: string | undefined,
+      handleElement: HTMLElement,
+      pointerId: number | null,
+    ) => {
       const nextPersistedId = rectId ?? null;
       if (dragHandleRef.current === which && dragPersistedIdRef.current === nextPersistedId) return;
 
@@ -1764,6 +1908,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       dragHandleElRef.current = handleElement;
       dragHandleRef.current = which;
       dragPersistedIdRef.current = nextPersistedId;
+      dragPointerIdRef.current = pointerId;
 
       if (nextPersistedId) {
         const item = propRects.find((r) => r.id === nextPersistedId);
@@ -1788,7 +1933,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     (which: 'start' | 'end', rectId?: string) => (e: HandleDragStartEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      beginRectHandleDrag(which, rectId, e.currentTarget);
+      beginRectHandleDrag(which, rectId, e.currentTarget, 'pointerId' in e ? e.pointerId : null);
     },
     [beginRectHandleDrag],
   );
@@ -1814,12 +1959,18 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
       if (handle.classList.contains('hsn-selection-handle-rect')) {
         const rectId = handle.getAttribute('data-rect-id') || undefined;
-        beginRectHandleDrag(type, rectId, handle);
+        beginRectHandleDrag(type, rectId, handle, 'pointerId' in event ? event.pointerId : null);
       } else {
         const rangeId = !hasSelectionRef.current
           ? (currentSelectedRangeIdRef.current ?? undefined)
           : undefined;
-        beginHandleDrag(type, rangeId, handle);
+        beginHandleDrag({
+          type,
+          rangeId,
+          handleElement: handle,
+          pointer: { clientX: event.clientX, clientY: event.clientY },
+          pointerId: 'pointerId' in event ? event.pointerId : null,
+        });
       }
     };
 
@@ -1851,6 +2002,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     const onMove = (e: PointerEvent) => {
       const which = dragHandleRef.current;
       if (!which) return;
+      if (dragPointerIdRef.current !== null && e.pointerId !== dragPointerIdRef.current) return;
       const container = containerRef.current;
       if (!container) return;
       const persistedId = dragPersistedIdRef.current;
@@ -1920,8 +2072,37 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         }
       }
 
+      const pointerPoint = { x: e.clientX, y: e.clientY };
+      if (showSelectionMagnifier) magnifierRef.current?.moveLens(pointerPoint);
       const info = caretInfoFromPoint(e.clientX, e.clientY);
       if (!info) return;
+
+      const caretRange = document.createRange();
+      try {
+        caretRange.setStart(info.node, info.offset);
+        caretRange.collapse(true);
+        const caretRect = caretRange.getBoundingClientRect();
+        if (caretRect.height > 0) {
+          const caretElement = info.node instanceof Element ? info.node : info.node.parentElement;
+          const caretContent = caretElement?.closest('.hsn-selection-content');
+          if (showSelectionMagnifier && caretContent instanceof HTMLDivElement) {
+            const caretContainer = caretContent.closest('.hsn-selection-container');
+            const nextSource =
+              caretContainer instanceof HTMLDivElement ? caretContainer : caretContent;
+            const nextTarget: SelectionMagnifierTarget = {
+              point: pointerPoint,
+              source: nextSource,
+            };
+            if (magnifierRef.current?.source !== nextSource) {
+              setMagnifierTarget(nextTarget);
+            } else {
+              magnifierRef.current.moveLens(pointerPoint);
+            }
+          }
+        }
+      } catch {
+        return;
+      }
 
       const linkedMovingEndpoint = linkedDataRef.current
         ? resolveEndpoint(info.node, info.offset)
@@ -2052,21 +2233,32 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         sel.addRange(newRange);
       }
     };
-    const onUp = (e: PointerEvent) => {
+    const onUp = (e: PointerEvent | FocusEvent) => {
       if (!dragHandleRef.current && !dragPersistedIdRef.current) return;
+      if (
+        'pointerId' in e &&
+        dragPointerIdRef.current !== null &&
+        e.pointerId !== dragPointerIdRef.current
+      ) {
+        return;
+      }
       const persistedId = dragPersistedIdRef.current;
       if (dragHandleElRef.current) {
         dragHandleElRef.current.style.pointerEvents = '';
         dragHandleElRef.current = null;
       }
-      skipClickRef.current = createSkipClickToken({
-        clientX: e.clientX,
-        clientY: e.clientY,
-      });
+      if ('clientX' in e && 'clientY' in e) {
+        skipClickRef.current = createSkipClickToken({
+          clientX: e.clientX,
+          clientY: e.clientY,
+        });
+      }
       dragHandleRef.current = null;
       dragPersistedIdRef.current = null;
+      dragPointerIdRef.current = null;
       dragLinkedAnchorRef.current = null;
       dragAnchorRef.current = -1;
+      setMagnifierTarget(null);
       setDragHandle(null);
       setDragPersistedId(null);
       if (persistedId) {
@@ -2084,9 +2276,13 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+    window.addEventListener('blur', onUp);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('blur', onUp);
     };
   }, [
     legacyOverlayRectType,
@@ -2098,6 +2294,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     propRects,
     onUpdateRect,
     activeRect,
+    showSelectionMagnifier,
   ]);
 
   // 计算 Popover 的锚点：选中 range 的最顶部矩形的水平中点 + 顶边。
@@ -2228,12 +2425,24 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     top: number,
     overlayRectType: OverlayRectType,
     ownerStyle: CSSProperties | undefined,
+    // 第 5 参仅用于颜色通道决策：文本手柄与 rect 手柄消费不同的视觉字段
+    target: 'text' | 'rect',
   ): React.CSSProperties => {
-    const s: React.CSSProperties = {
+    // 交叉类型声明，使 strict TS 下可以安全写入自定义 CSS 变量
+    const s: React.CSSProperties & { '--hsn-handle-color'?: string } = {
       left: buildPositionStyleValue(left, overlayRectType),
       top: buildPositionStyleValue(top, overlayRectType),
     };
     const visual = deriveHandleVisualStyle(ownerStyle, legacyHandleFallback);
+    if (target === 'text') {
+      // 文本手柄（竖线+圆圈）：只消费 background 推导色，经 CSS 变量传给子元素；
+      // 不消费 borderColor/borderWidth，也不写宽高（宽高由默认 button 内联热区提供）
+      if (visual.background !== undefined) {
+        s['--hsn-handle-color'] = visual.background;
+      }
+      return s;
+    }
+    // rect 手柄（圆形）：行为与历史完全一致，完整消费背景与边框
     if (visual.background !== undefined) s.background = visual.background;
     if (visual.borderColor !== undefined) {
       s.borderColor = visual.borderColor;
@@ -2260,6 +2469,8 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
     positionUnit: OverlayRectType = legacyOverlayRectType,
     target: 'text' | 'rect' = 'text',
     rectId: string | null = null,
+    // 末尾追加的可选形参：文本手柄所在行的行高，用于内置默认热区高度计算
+    lineHeight?: number,
   ) => {
     const handleProps: HandleRenderProps = {
       type,
@@ -2274,19 +2485,26 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       ariaLabel,
       className,
       style,
+      lineHeight,
     };
     if (renderHandle) {
       const rendered = renderHandle(handleProps);
       if (rendered === null) return null;
       return rendered;
     }
+    // 以下仅内置默认 <button> 分支：文本手柄计算透明热区尺寸（宽 28px，高 = 行高 + 12px）。
+    // 行高缺失或非法（如持久化脏数据 height: 0）时兜底 12；rect 分支不消费这些值。
+    const effLineHeight = typeof lineHeight === 'number' && lineHeight > 0 ? lineHeight : 12;
+    const width = '28px';
+    const height =
+      positionUnit === 'percent' ? `calc(${effLineHeight}% + 12px)` : `${effLineHeight + 12}px`;
     return (
       <button
         type="button"
-        className={className}
+        className={target === 'text' ? `${className} hsn-selection-handle-text` : className}
         tabIndex={-1}
         aria-label={ariaLabel}
-        style={style}
+        style={target === 'text' ? { ...handleProps.style, width, height } : style}
         data-rect-id={rectId ?? ''}
         data-range-id={rangeId ?? ''}
         ref={(el) => {
@@ -2295,9 +2513,20 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
             event.preventDefault();
             event.stopPropagation();
             if (target === 'rect') {
-              beginRectHandleDrag(type, rectId ?? undefined, el);
+              beginRectHandleDrag(
+                type,
+                rectId ?? undefined,
+                el,
+                'pointerId' in event ? event.pointerId : null,
+              );
             } else {
-              beginHandleDrag(type, rangeId ?? undefined, el);
+              beginHandleDrag({
+                type,
+                rangeId: rangeId ?? undefined,
+                handleElement: el,
+                pointer: { clientX: event.clientX, clientY: event.clientY },
+                pointerId: 'pointerId' in event ? event.pointerId : null,
+              });
             }
           };
           el.onpointerdown = nativeDragStart;
@@ -2305,7 +2534,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         }}
         onMouseDown={onDragStart}
         onPointerDown={handleProps.onPointerDown}
-      />
+      >
+        {target === 'text' && (
+          <>
+            <span className="hsn-selection-handle__line" aria-hidden="true" />
+            <span className="hsn-selection-handle__circle" aria-hidden="true" />
+          </>
+        )}
+      </button>
     );
   };
 
@@ -2538,6 +2774,14 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
         {children}
       </div>
 
+      {showSelectionMagnifier && magnifierTarget && (
+        <SelectionMagnifier
+          ref={magnifierRef}
+          point={magnifierTarget.point}
+          source={magnifierTarget.source}
+        />
+      )}
+
       {/*
         Popover 层：渲染在 children 之上、与 overlay 同层级（更高 z-index 保证浮在最上）。
         位置基于选中 range 顶部矩形的水平中点；transform 把自己钉在锚点正上方。
@@ -2580,7 +2824,9 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       )}
 
       {/*
-        拖拽手柄：活跃选区的首尾各一个粉色圆形。
+        拖拽手柄：活跃选区的首尾各一个。
+        文本手柄为移动端友好的「竖线 + 圆圈」结构（透明热区，内置默认 button）；
+        rect 手柄为圆形 button，视觉与历史一致。
         起点手柄钉在第一行矩形左侧中央，终点手柄钉在最后一行矩形右侧中央。
         拖动时通过 caretInfoFromPoint 反查 caret 偏移，更新原生选区；
         selectionchange → hook 重新计算 rects → 手柄位置基于新 rects 自然跟随。
@@ -2625,6 +2871,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   displayStart.y,
                   activeRectOverlayRectType,
                   activeSelectionStyle,
+                  'rect',
                 ),
                 activeRectOverlayRectType,
                 'rect',
@@ -2644,6 +2891,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                   displayEnd.y,
                   activeRectOverlayRectType,
                   activeSelectionStyle,
+                  'rect',
                 ),
                 activeRectOverlayRectType,
                 'rect',
@@ -2704,10 +2952,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     first.y + first.height / 2,
                     displayActiveOverlayRectType,
                     activeSelectionStyle,
+                    'text',
                   ),
                   displayActiveOverlayRectType,
                   'text',
                   null,
+                  first.height,
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -2724,10 +2974,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     last.y + last.height / 2,
                     displayActiveOverlayRectType,
                     activeSelectionStyle,
+                    'text',
                   ),
                   displayActiveOverlayRectType,
                   'text',
                   null,
+                  last.height,
                 )}
             </>
           );
@@ -2777,6 +3029,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     persistedSelectionRect.start.y,
                     entryType,
                     persistedHandleStyle,
+                    'rect',
                   ),
                   entryType,
                   'rect',
@@ -2799,6 +3052,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     persistedSelectionRect.end.y,
                     entryType,
                     persistedHandleStyle,
+                    'rect',
                   ),
                   entryType,
                   'rect',
@@ -2851,10 +3105,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     first.y + first.height / 2,
                     entry.overlayRectType,
                     persistedHandleStyle,
+                    'text',
                   ),
                   entry.overlayRectType,
                   'text',
                   null,
+                  first.height,
                 )}
               {showEndHandle &&
                 renderSingleHandle(
@@ -2871,10 +3127,12 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
                     last.y + last.height / 2,
                     entry.overlayRectType,
                     persistedHandleStyle,
+                    'text',
                   ),
                   entry.overlayRectType,
                   'text',
                   null,
+                  last.height,
                 )}
             </>
           );

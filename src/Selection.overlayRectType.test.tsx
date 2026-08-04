@@ -104,6 +104,19 @@ function stubCoarsePointer(): void {
   }));
 }
 
+function stubFinePointer(): void {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === '(pointer: fine)',
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 function selectedRange(onSelect: ReturnType<typeof vi.fn>): SelectionRange {
   const range = onSelect.mock.lastCall?.[0];
   if (range) return range;
@@ -916,6 +929,308 @@ describe('Selection overlayRectType', () => {
     expect(finalData?.activeRange).toBeNull();
   });
 
+  it('selection.mobile-contextmenu.suppresses-plain-contextmenu-on-coarse-pointer', () => {
+    // Given: iOS-style coarse input emits contextmenu as a plain MouseEvent without pointerType.
+    stubCoarsePointer();
+    const { container } = render(<Selection ranges={[]}>{content()}</Selection>);
+    const host = selectionContainer(container);
+    const contextMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+
+    // When: WebKit attempts to open its native copy/cut selection menu.
+    host.dispatchEvent(contextMenu);
+
+    // Then: Selection suppresses the native menu for coarse-pointer text mode.
+    expect(contextMenu.defaultPrevented).toBe(true);
+  });
+
+  it('selection.desktop-contextmenu.preserves-plain-contextmenu-on-fine-pointer', () => {
+    // Given: a desktop fine pointer opens a regular context menu.
+    stubFinePointer();
+    const { container } = render(<Selection ranges={[]}>{content()}</Selection>);
+    const host = selectionContainer(container);
+    const contextMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+
+    // When: the user right-clicks Selection content.
+    host.dispatchEvent(contextMenu);
+
+    // Then: desktop context-menu behavior remains available.
+    expect(contextMenu.defaultPrevented).toBe(false);
+  });
+
+  it('selection.mobile-touchstart.temporarily-suppresses-native-selection-without-canceling-scroll', () => {
+    // Given: a coarse-pointer active selection has custom Popover UI and selectable content.
+    mockGeometry();
+    stubCoarsePointer();
+    const { container, getByRole } = render(
+      <Selection ranges={[]} selectionPopover={<button type="button">Highlight</button>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    selectOnly(container);
+    const paragraph = container.querySelector('[data-testid="first-paragraph"]');
+    if (!paragraph) throw new TypeError('Expected first paragraph fixture');
+    const caretRange = document.createRange();
+    caretRange.setStart(textNodeFrom(paragraph), 5);
+    caretRange.collapse(true);
+    const caretRangeFromPoint = vi.fn(() => {
+      expect(
+        container.querySelector('.hsn-selection-content--suppress-native-selection'),
+      ).not.toBeInTheDocument();
+      return caretRange;
+    });
+    Object.defineProperty(document, 'caretRangeFromPoint', {
+      configurable: true,
+      value: caretRangeFromPoint,
+    });
+
+    // When: one finger starts on content while scrolling remains browser-controlled.
+    const contentDispatchesDefault = fireEvent.touchStart(paragraph, {
+      touches: [{ clientX: 80, clientY: 42 }],
+    });
+
+    // Then: hit testing precedes the temporary CSS suppression and touch default stays enabled.
+    expect(contentDispatchesDefault).toBe(true);
+    expect(caretRangeFromPoint).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector('.hsn-selection-content--suppress-native-selection'),
+    ).toBeInTheDocument();
+
+    // When: a new touch starts in Popover or uses two fingers.
+    const popoverDispatchesDefault = fireEvent.touchStart(
+      getByRole('button', { name: 'Highlight' }),
+      {
+        touches: [{ clientX: 80, clientY: 42 }],
+      },
+    );
+    const multiTouchDispatchesDefault = fireEvent.touchStart(host, {
+      touches: [
+        { clientX: 80, clientY: 42 },
+        { clientX: 100, clientY: 62 },
+      ],
+    });
+
+    // Then: excluded gestures stay native and do not leave the temporary suppression class behind.
+    expect(popoverDispatchesDefault).toBe(true);
+    expect(multiTouchDispatchesDefault).toBe(true);
+    expect(
+      container.querySelector('.hsn-selection-content--suppress-native-selection'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('selection.mobile-multitouch.restores-native-selection-after-long-press-triggered', () => {
+    // Given: the custom long-press has already fired while native selection remains suppressed.
+    vi.useFakeTimers();
+    try {
+      mockGeometry();
+      stubCoarsePointer();
+      const onSelectionStart = vi.fn();
+      const onSelectionEnd = vi.fn();
+      const { container } = render(
+        <Selection ranges={[]} onSelectionStart={onSelectionStart} onSelectionEnd={onSelectionEnd}>
+          {content()}
+        </Selection>,
+      );
+      const host = selectionContainer(container);
+      const paragraph = container.querySelector('[data-testid="first-paragraph"]');
+      if (!paragraph) throw new TypeError('Expected first paragraph fixture');
+      const caretRange = document.createRange();
+      caretRange.setStart(textNodeFrom(paragraph), 5);
+      caretRange.collapse(true);
+      Object.defineProperty(document, 'caretRangeFromPoint', {
+        configurable: true,
+        value: vi.fn(() => caretRange),
+      });
+      fireEvent.touchStart(paragraph, { touches: [{ clientX: 80, clientY: 42 }] });
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+      expect(onSelectionStart).toHaveBeenCalledTimes(1);
+      expect(
+        container.querySelector('.hsn-selection-content--suppress-native-selection'),
+      ).toBeInTheDocument();
+
+      // When: a second finger joins through the browser's real touchstart sequence.
+      fireEvent.touchStart(host, {
+        touches: [
+          { clientX: 80, clientY: 42 },
+          { clientX: 100, clientY: 62 },
+        ],
+      });
+
+      // Then: native pinch handling is restored immediately and no suppression class remains.
+      expect(
+        container.querySelector('.hsn-selection-content--suppress-native-selection'),
+      ).not.toBeInTheDocument();
+      expect(onSelectionEnd).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('selection.mobile-cleanup.ends-a-triggered-long-press-once', () => {
+    // Given: a committed mobile long-press remains active when the component is unmounted.
+    vi.useFakeTimers();
+    try {
+      mockGeometry();
+      stubCoarsePointer();
+      const onSelectionEnd = vi.fn();
+      const { container, unmount } = render(
+        <Selection ranges={[]} onSelectionEnd={onSelectionEnd}>
+          {content()}
+        </Selection>,
+      );
+      const paragraph = container.querySelector('[data-testid="first-paragraph"]');
+      if (!paragraph) throw new TypeError('Expected first paragraph fixture');
+      const caretRange = document.createRange();
+      caretRange.setStart(textNodeFrom(paragraph), 5);
+      caretRange.collapse(true);
+      Object.defineProperty(document, 'caretRangeFromPoint', {
+        configurable: true,
+        value: vi.fn(() => caretRange),
+      });
+      fireEvent.touchStart(paragraph, { touches: [{ clientX: 80, clientY: 42 }] });
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+
+      // When: a tool switch or parent update unmounts Selection mid-sequence.
+      unmount();
+
+      // Then: cleanup closes the public selection lifecycle exactly once.
+      expect(onSelectionEnd).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('selection.mobile-touchcancel.ends-a-triggered-long-press-once', () => {
+    // Given: a valid mobile long-press has emitted its selection-start lifecycle event.
+    vi.useFakeTimers();
+    try {
+      mockGeometry();
+      stubCoarsePointer();
+      const onSelectionStart = vi.fn();
+      const onSelectionEnd = vi.fn();
+      const { container } = render(
+        <Selection ranges={[]} onSelectionStart={onSelectionStart} onSelectionEnd={onSelectionEnd}>
+          {content()}
+        </Selection>,
+      );
+      const paragraph = container.querySelector('[data-testid="first-paragraph"]');
+      if (!paragraph) throw new TypeError('Expected first paragraph fixture');
+      const caretRange = document.createRange();
+      caretRange.setStart(textNodeFrom(paragraph), 0);
+      caretRange.setEnd(textNodeFrom(paragraph), 0);
+      caretRange.collapse(true);
+      Object.defineProperty(document, 'caretRangeFromPoint', {
+        configurable: true,
+        value: vi.fn(() => caretRange),
+      });
+      fireEvent.touchStart(paragraph, { touches: [{ clientX: 80, clientY: 42 }] });
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+      expect(onSelectionStart).toHaveBeenCalledTimes(1);
+
+      // When: WebKit cancels the active touch sequence.
+      fireEvent.touchCancel(paragraph, {
+        changedTouches: [{ clientX: 80, clientY: 42 }],
+      });
+
+      // Then: the committed lifecycle is paired exactly once and suppression is removed.
+      expect(onSelectionEnd).toHaveBeenCalledTimes(1);
+      expect(
+        container.querySelector('.hsn-selection-content--suppress-native-selection'),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('selection.mobile-invalid-range.drag-after-timeout-does-not-clear-active-selection', () => {
+    // Given: an existing active selection and a long-press candidate whose cached Range is invalid.
+    mockGeometry();
+    stubCoarsePointer();
+    const { container } = render(
+      <Selection ranges={[]} selectionPopover={<div data-testid="active-popover">Active</div>}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    selectOnly(container);
+    vi.useFakeTimers();
+    try {
+      const paragraph = container.querySelector('[data-testid="first-paragraph"]');
+      const contentLayer = container.querySelector('.hsn-selection-content');
+      if (!paragraph || !contentLayer) throw new TypeError('Expected selection content fixture');
+      const caretRange = document.createRange();
+      caretRange.setStart(textNodeFrom(paragraph), 5);
+      caretRange.collapse(true);
+      Object.defineProperty(document, 'caretRangeFromPoint', {
+        configurable: true,
+        value: vi.fn(() => caretRange),
+      });
+      fireEvent.touchStart(paragraph, { touches: [{ clientX: 80, clientY: 42 }] });
+      vi.spyOn(contentLayer, 'contains').mockReturnValue(false);
+      act(() => {
+        vi.advanceTimersByTime(450);
+      });
+
+      // When: the same finger moves beyond the tap threshold after validation has failed.
+      fireEvent.touchMove(host, { touches: [{ clientX: 120, clientY: 82 }] });
+      fireEvent.touchEnd(host, { changedTouches: [{ clientX: 120, clientY: 82 }] });
+
+      // Then: scroll/drag intent is retained instead of being misclassified as a clearing tap.
+      expect(container.querySelector('[data-testid="active-popover"]')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('selection.mobile-highlight.long-press-reselects-highlighted-text', () => {
+    // Given: a persisted custom highlight overlays selectable text on a coarse-pointer device.
+    vi.useFakeTimers();
+    try {
+      mockGeometry();
+      stubCoarsePointer();
+      const onSelectRange = vi.fn();
+      const { container, getByRole } = render(
+        <Selection
+          ranges={[pxRange()]}
+          selectedRangeId="stored-px"
+          onSelectRange={onSelectRange}
+          selectionPopover={<button type="button">Highlight again</button>}
+        >
+          {content()}
+        </Selection>,
+      );
+      const paragraph = container.querySelector('[data-testid="first-paragraph"]');
+      if (!paragraph) throw new TypeError('Expected first paragraph fixture');
+      const caretRange = document.createRange();
+      caretRange.setStart(textNodeFrom(paragraph), 5);
+      caretRange.collapse(true);
+      Object.defineProperty(document, 'caretRangeFromPoint', {
+        configurable: true,
+        value: vi.fn(() => caretRange),
+      });
+
+      // When: the user long-presses text already covered by that custom highlight.
+      act(() => {
+        fireEvent.touchStart(paragraph, { touches: [{ clientX: 80, clientY: 42 }] });
+        vi.advanceTimersByTime(450);
+      });
+
+      // Then: the persisted selection is deselected and a new active custom selection appears.
+      expect(onSelectRange).toHaveBeenCalledWith(null);
+      expect(getByRole('button', { name: 'Highlight again' })).toBeInTheDocument();
+      expect(container.querySelectorAll('.hsn-selection-handle')).toHaveLength(2);
+      expect(document.getSelection()?.toString()).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('selection.mobile-linked-range.publishes-active-range-without-native-selection', () => {
     // Given: coarse-pointer long press resolves a word through setFromRange,
     // while the browser-native Selection remains collapsed and empty.
@@ -1036,6 +1351,60 @@ describe('Selection overlayRectType', () => {
     // Then: pinch/zoom-style non-single-finger touch does not cancel the active selection.
     expect(container.querySelector('[data-testid="active-popover"]')).toBeInTheDocument();
     expect(container.querySelectorAll('.hsn-selection-handle')).toHaveLength(2);
+  });
+
+  it('selection.mobile-multitouch.does-not-swallow-the-next-highlight-click', () => {
+    // Given: an unselected persisted highlight is visible on a coarse-pointer device.
+    mockGeometry();
+    stubCoarsePointer();
+    const onSelectRange = vi.fn();
+    const { container } = render(
+      <Selection ranges={[pxRange()]} selectedRangeId={null} onSelectRange={onSelectRange}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+
+    // When: a two-finger gesture emits no synthetic click, then the highlight is clicked.
+    act(() => {
+      fireEvent.touchStart(host, {
+        touches: [
+          { clientX: 160, clientY: 80 },
+          { clientX: 180, clientY: 100 },
+        ],
+      });
+      fireEvent.touchEnd(host, {
+        changedTouches: [
+          { clientX: 160, clientY: 80 },
+          { clientX: 180, clientY: 100 },
+        ],
+      });
+      fireEvent.click(host, { clientX: 50, clientY: 40 });
+    });
+
+    // Then: no match-any token consumes the user's next valid selection action.
+    expect(onSelectRange).toHaveBeenCalledWith('stored-px');
+  });
+
+  it('selection.mobile-touchend.does-not-suppress-a-different-mouse-position', () => {
+    // Given: a hybrid device completes a touch without emitting compatibility mouse events.
+    mockGeometry();
+    stubCoarsePointer();
+    const onSelectionStart = vi.fn();
+    const { container } = render(
+      <Selection ranges={[]} onSelectionStart={onSelectionStart}>
+        {content()}
+      </Selection>,
+    );
+    const host = selectionContainer(container);
+    fireEvent.touchStart(host, { touches: [{ clientX: 160, clientY: 80 }] });
+    fireEvent.touchEnd(host, { changedTouches: [{ clientX: 160, clientY: 80 }] });
+
+    // When: the user later starts a real mouse selection at another coordinate.
+    fireEvent.mouseDown(host, { clientX: 40, clientY: 30 });
+
+    // Then: the stale touch marker is cleared without suppressing the mouse lifecycle.
+    expect(onSelectionStart).toHaveBeenCalledTimes(1);
   });
 
   it('selection.mobile-active-selection.single-finger-drag-preserves-selection', () => {

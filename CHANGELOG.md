@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-29
+
+### 新增
+
+- `HandleRenderProps.lineHeight`：文本手柄 render props 新增行高字段，供自定义 renderer 对齐行高
+- `showSelectionMagnifier`：新增可选的文本端点放大镜，默认关闭；启用后仅在拖动文本手柄期间显示，并支持联动选区跨容器切换采样内容
+
+### 变更
+
+- 默认文本手柄视觉由桌面圆点变为移动端「竖线 + 圆圈」样式（宽 28px 热区，内含 2px 竖线与 12px 端点圆圈）
+
+### 破坏性迁移
+
+- 文本手柄 render props 不再提供 `style.background`、`borderColor`、`borderWidth`、`borderStyle`；颜色改从 `style['--hsn-handle-color']` 读取
+- owner-derived border（由外部 owner 样式推导的边框）需 renderer 自行提供，库不再代为生成
+- 基类 `hsn-selection-handle` 不再携带旧圆点的 12×12 尺寸、2px 白色边框、圆角、背景与阴影
+- `hsn-selection-handle-dot` 仅恢复库内置、未带 owner 边框覆盖时的旧默认圆点视觉，不能保证任意旧 renderer 的 owner border / content-box 像素结果
+- 严禁使用 `hsn-selection-handle-rect` 作为旧圆点恢复手段：该类具备运行时 rect 路由语义
+- 内置 rect（矩形工具）手柄视觉与行为不变
+
+## [0.1.2] - 2026-07-19
+
+### 变更
+
+- 无库功能变更；调整发布工作流的 `contents: write` 权限（`e317486` `fix: grant contents:write permission for release creation`，仅改 `.github/workflows/publish.yml`；`55aa499` `chore(release): bump version to 0.1.2`，仅改 package version）
+
 ## [0.1.1] - 2026-07-19
 
 ### 修复

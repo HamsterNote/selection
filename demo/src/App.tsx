@@ -96,6 +96,7 @@ export default function App() {
   );
   const [overlayRectType, setOverlayRectType] = useState<OverlayRectType>('px');
   const [tool, setTool] = useState<SelectionTool>('text');
+  const [showSelectionMagnifier, setShowSelectionMagnifier] = useState(false);
 
   const [rects, setRects] = useState<SelectionRect[]>([]);
   const [selectedRectId, setSelectedRectId] = useState<string | null>(null);
@@ -191,8 +192,10 @@ export default function App() {
     setOverallData((prev) =>
       prev.selectedRangeId === id ? prev : { ...prev, selectedRangeId: id },
     );
-    setLegacySelectedId(null);
-    setSelectedRectId(null);
+    if (id !== null) {
+      setLegacySelectedId(null);
+      setSelectedRectId(null);
+    }
   }, []);
 
   // ─────────────────────────────────────────────────────────────
@@ -230,9 +233,11 @@ export default function App() {
 
   const handleLegacySelectRange = useCallback(
     (id: string | null) => {
-      clearLinkedSelectedRange();
       setLegacySelectedId(id);
-      setSelectedRectId(null);
+      if (id !== null) {
+        clearLinkedSelectedRange();
+        setSelectedRectId(null);
+      }
     },
     [clearLinkedSelectedRange],
   );
@@ -259,9 +264,11 @@ export default function App() {
 
   const handleSelectRect = useCallback(
     (id: string | null) => {
-      clearLinkedSelectedRange();
-      setLegacySelectedId(null);
       setSelectedRectId(id);
+      if (id !== null) {
+        clearLinkedSelectedRange();
+        setLegacySelectedId(null);
+      }
     },
     [clearLinkedSelectedRange],
   );
@@ -339,6 +346,13 @@ export default function App() {
     if (customHandleMode === 'default') return undefined;
     return (props: HandleRenderProps) => {
       if (customHandleMode === 'hidden') return null;
+      // T2 后文本手柄 style 不再携带 background/borderColor，颜色改经
+      // --hsn-handle-color CSS 变量传递；rect 手柄仍走旧 background/borderColor
+      // 路径，故两处回退必须保留（strict TS 下用交叉类型而非 as Record）。
+      const hsnStyle = props.style as
+        | (React.CSSProperties & { '--hsn-handle-color'?: string })
+        | undefined;
+      const hsnColor = hsnStyle?.['--hsn-handle-color'];
       return (
         <button
           type="button"
@@ -350,8 +364,8 @@ export default function App() {
             borderRadius: 2,
             width: 12,
             height: 12,
-            border: `2px solid ${props.style.borderColor ?? '#fff'}`,
-            background: props.style.background ?? '#ff4fa3',
+            border: `2px solid ${hsnColor ?? hsnStyle?.borderColor ?? '#ffffff'}`,
+            background: hsnColor ?? hsnStyle?.background ?? '#ff4fa3',
             cursor: 'grab',
             transform: props.isDragging ? 'scale(1.3)' : 'scale(1)',
             transition: 'transform 0.1s ease',
@@ -525,6 +539,27 @@ export default function App() {
           </span>
         </label>
 
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 8,
+            fontSize: 13,
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showSelectionMagnifier}
+            onChange={(event) => setShowSelectionMagnifier(event.target.checked)}
+          />
+          <span>
+            <strong>showSelectionMagnifier</strong>
+            <span style={{ color: '#888' }}> — 拖动文本手柄时显示端点放大镜（默认关闭）</span>
+          </span>
+        </label>
+
         {/* Feature 1：手柄渲染模式 */}
         <div style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 13, marginRight: 8 }}>
@@ -540,7 +575,11 @@ export default function App() {
                 onChange={() => setCustomHandleMode(mode)}
                 style={{ marginRight: 4 }}
               />
-              {mode === 'default' ? '内置圆形' : mode === 'square' ? '自定义方形' : '隐藏(null)'}
+              {mode === 'default'
+                ? '内置移动端样式'
+                : mode === 'square'
+                  ? '自定义方形'
+                  : '隐藏(null)'}
             </label>
           ))}
         </div>
@@ -721,6 +760,7 @@ export default function App() {
             popover={linkedPopover}
             selectionPopover={makeLinkedSelectionPopover(PAGE_A)}
             overlayRectType={overlayRectType}
+            showSelectionMagnifier={showSelectionMagnifier}
           >
             {INTRO_A}
             {' 它的核心思想是'}
@@ -815,6 +855,7 @@ export default function App() {
             popover={linkedPopover}
             selectionPopover={makeLinkedSelectionPopover(PAGE_B)}
             overlayRectType={overlayRectType}
+            showSelectionMagnifier={showSelectionMagnifier}
           >
             {INTRO_B}
             {' 与其它框架不同的是，它通过'}
@@ -1027,6 +1068,7 @@ export default function App() {
                 </div>
               }
               overlayRectType={overlayRectType}
+              showSelectionMagnifier={showSelectionMagnifier}
             >
               {LEGACY_TEXT}
               <br />
