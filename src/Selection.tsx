@@ -1333,6 +1333,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!mouseSelectingTextRef.current) return;
+      if (linkedSelectionId) return;
       const target = e.target;
       if (target instanceof Element && target.closest('.hsn-selection-container')) return;
 
@@ -1351,7 +1352,7 @@ export const Selection = forwardRef<SelectionRef, SelectionProps>(function Selec
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isTextTool, onSelectRect, setLinkedSelectingText]);
+  }, [isTextTool, linkedSelectionId, onSelectRect, setLinkedSelectingText]);
 
   useEffect(() => {
     if (!hasSelection && !mouseSelectingTextRef.current) {

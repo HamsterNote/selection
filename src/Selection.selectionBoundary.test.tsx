@@ -1,6 +1,7 @@
 /// <reference types="vitest/globals" />
 import { act, render } from '@testing-library/react';
 import { Selection } from './Selection';
+import type { LinkedSelectionData } from './types';
 
 function selectionContainer(host: HTMLElement): HTMLElement {
   const container = host.querySelector('.hsn-selection-container');
@@ -98,6 +99,40 @@ describe('Selection native drag boundary', () => {
     });
 
     // Then: 允许浏览器继续更新跨容器原生选区。
+    expect(moveEvent.defaultPrevented).toBe(false);
+  });
+
+  it('allows the first linked selection drag to cross the gap between containers', () => {
+    // Given: 两个联动 Selection 之间存在不属于任何 Selection 容器的布局间隙。
+    const linkedData = {
+      items: [],
+      selectedRangeId: null,
+      selectionOrder: ['page-a', 'page-b'],
+    } satisfies LinkedSelectionData;
+    const view = render(
+      <div>
+        <Selection selectionId="page-a" linkedMode={true} linkedData={linkedData} ranges={[]}>
+          <span>First page</span>
+        </Selection>
+        <div data-testid="container-gap" />
+        <Selection selectionId="page-b" linkedMode={true} linkedData={linkedData} ranges={[]}>
+          <span>Second page</span>
+        </Selection>
+      </div>,
+    );
+    const firstContainer = selectionContainer(view.container);
+    const gap = view.getByTestId('container-gap');
+    act(() => {
+      firstContainer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    });
+
+    // When: 第一次原生拖选连续移动到两个容器之间的间隙。
+    const moveEvent = createMouseMove();
+    act(() => {
+      gap.dispatchEvent(moveEvent);
+    });
+
+    // Then: 联动模式保留浏览器的原生选区更新，使手势能继续进入下一个容器。
     expect(moveEvent.defaultPrevented).toBe(false);
   });
 });
