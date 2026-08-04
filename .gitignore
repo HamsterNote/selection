@@ -9,6 +9,7 @@ dist-demo/
 .vscode/
 .idea/
 .omo/
+.playwright-mcp/
 *.swp
 *.swo
 *~
