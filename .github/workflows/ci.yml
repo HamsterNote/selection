@@ -22,10 +22,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
+
+      - name: Setup Yarn
+        run: |
+          corepack enable
+          corepack install --global yarn@4.12.0
+          yarn --version
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
 
       - name: Format check
         run: yarn format:check
