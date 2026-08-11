@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-11
+
+### 变更
+
+- 建立 0.4.0 开发基线；合并 PR #6（selection magnifier / outside-click deselection）与 PR #7 后，与既有 0.3.0 功能合并无净代码变更
+- 固定项目 Yarn 工具链（Yarn 4.12.0）并在 GitHub Actions 中锁定 Yarn 版本，忽略 Yarn 本地安装状态
+
 ## [0.3.0] - 2026-08-04
 
 ### 新增
