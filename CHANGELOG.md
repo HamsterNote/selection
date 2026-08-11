@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-04
+
+### 新增
+
+- 文本手柄拖拽放大镜（`SelectionMagnifier`）：拖拽文本手柄时在端点处显示放大镜，实时放大选区端点附近的文本内容，提升精确定位体验
+- `showSelectionMagnifier`：新增配置属性，用于控制放大镜的启用/关闭，默认关闭
+- 页面级外部点击清除选区：点击选区外部空白区域时清除文本选区及其覆盖层
+- 联动模式支持跨越间隙拖拽：在纵向跨容器联动选区中，允许拖拽跨越选区之间的间隙
+
+### 修复
+
+- 文本选择和放大镜的多种边缘情况处理
+- CI 格式化校验修复（锁定 Prettier 版本）
+
+### 变更
+
+- 代码格式化和类型可读性优化
+
 ## [0.2.0] - 2026-07-29
 
 ### 新增

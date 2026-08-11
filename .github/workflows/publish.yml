@@ -21,10 +21,15 @@ jobs:
         with:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
-          cache: yarn
+
+      - name: Setup Yarn
+        run: |
+          corepack enable
+          corepack install --global yarn@4.12.0
+          yarn --version
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
 
       - name: Build
         run: yarn build
